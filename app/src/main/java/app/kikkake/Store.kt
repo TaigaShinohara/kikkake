@@ -20,6 +20,7 @@ class MacroStore(context: Context) {
                     trigger = TriggerType.valueOf(o.getString("trigger")),
                     triggerParam = o.optString("param", ""),
                     action = ActionType.valueOf(o.getString("action")),
+                    actionParam = o.optString("actionParam", ""),
                     constraintType = ConstraintType.valueOf(o.optString("constraint", "NONE")),
                     enabled = o.optBoolean("enabled", true),
                     lastRunAt = o.optLong("lastRunAt", 0L)
@@ -34,10 +35,24 @@ class MacroStore(context: Context) {
         list.forEach { m ->
             arr.put(JSONObject().apply {
                 put("id", m.id); put("name", m.name); put("trigger", m.trigger.name)
-                put("param", m.triggerParam); put("action", m.action.name)
+                put("param", m.triggerParam); put("action", m.action.name); put("actionParam", m.actionParam)
                 put("constraint", m.constraintType.name); put("enabled", m.enabled); put("lastRunAt", m.lastRunAt)
             })
         }
         prefs.edit().putString("list", arr.toString()).apply()
     }
+}
+
+/** エッジ検出などの状態保持 */
+class StateStore(context: Context) {
+    private val prefs = context.getSharedPreferences("state", Context.MODE_PRIVATE)
+    var lastBattery: Int
+        get() = prefs.getInt("lastBattery", 100)
+        set(v) = prefs.edit().putInt("lastBattery", v).apply()
+    var lastWifi: Boolean
+        get() = prefs.getBoolean("lastWifi", false)
+        set(v) = prefs.edit().putBoolean("lastWifi", v).apply()
+    var torchOn: Boolean
+        get() = prefs.getBoolean("torchOn", false)
+        set(v) = prefs.edit().putBoolean("torchOn", v).apply()
 }
