@@ -14,6 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -30,7 +31,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -56,6 +59,12 @@ object Palette {
     var Sky = Color(0xFF0277BD); var SkyBg = Color(0xFFE0F2FB)
     var CardWhite = Color(0xFFFFFFFF)
     var Line = Color(0xFFEDE6DA)
+    var GlassHi = Color.White.copy(alpha = 0.65f)
+    var GlassLo = Color.White.copy(alpha = 0.15f)
+    var GlassCard = Color.White.copy(alpha = 0.55f)
+    var BlobA = Color(0xFFF8BBD0)
+    var BlobB = Color(0xFFFFCC80)
+    var BlobC = Color(0xFF81D4FA)
 
     fun applyDark(dark: Boolean) {
         if (dark) {
@@ -65,7 +74,27 @@ object Palette {
             Purple = Color(0xFFCE9BE8); PurpleBg = Color(0xFF2F2140)
             Sky = Color(0xFF7CC7F0); SkyBg = Color(0xFF1D3242)
             CardWhite = Color(0xFF292219); Line = Color(0xFF3A322A)
+            GlassHi = Color.White.copy(alpha = 0.30f); GlassLo = Color.White.copy(alpha = 0.06f)
+            GlassCard = Color.White.copy(alpha = 0.10f)
+            BlobA = Color(0xFF6A2440); BlobB = Color(0xFF6A3A1C); BlobC = Color(0xFF14425E)
         }
+    }
+}
+
+// Liquid Glass風：半透明の面＋上辺のハイライトふち＋ぼかした色の光
+fun Modifier.glass(radius: Int, color: Color): Modifier {
+    val shape = RoundedCornerShape(radius.dp)
+    return this.clip(shape).background(color)
+        .border(1.dp, Brush.verticalGradient(listOf(Palette.GlassHi, Palette.GlassLo)), shape)
+}
+
+@Composable
+fun AppBackground() {
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.Paper, Palette.PinkBg, Palette.SkyBg)))) {
+        Box(Modifier.size(340.dp).offset(x = (-90).dp, y = (-70).dp).blur(70.dp).background(Palette.BlobA, RoundedCornerShape(999.dp)))
+        Box(Modifier.size(300.dp).offset(x = 240.dp, y = 130.dp).blur(80.dp).background(Palette.BlobB, RoundedCornerShape(999.dp)))
+        Box(Modifier.size(320.dp).offset(x = 190.dp, y = 560.dp).blur(80.dp).background(Palette.BlobC, RoundedCornerShape(999.dp)))
+        Box(Modifier.size(240.dp).offset(x = (-70).dp, y = 640.dp).blur(70.dp).background(Palette.BlobA, RoundedCornerShape(999.dp)))
     }
 }
 
@@ -79,7 +108,7 @@ class MainActivity : ComponentActivity() {
             val dark = isSystemInDarkTheme()
             Palette.applyDark(dark)
             MaterialTheme(colorScheme = if (dark) darkColorScheme(primary = Palette.Pink, background = Palette.Paper, surface = Palette.CardWhite) else lightColorScheme(primary = Palette.Pink, background = Palette.Paper, surface = Palette.CardWhite)) {
-                Surface(Modifier.fillMaxSize(), color = Palette.Paper) { KikkakeApp() }
+                Surface(Modifier.fillMaxSize(), color = Color.Transparent) { Box(Modifier.fillMaxSize()) { AppBackground(); KikkakeApp() } }
             }
         }
     }
@@ -218,7 +247,7 @@ fun KikkakeApp() {
     }
 
     Scaffold(
-        containerColor = Palette.Paper,
+        containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbarHost) },
         floatingActionButton = {
             FloatingActionButton(onClick = { startWizard(null) }, containerColor = Palette.Pink, contentColor = Color.White) {
@@ -234,7 +263,7 @@ fun KikkakeApp() {
             }
             if (macros.isEmpty()) {
                 item {
-                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.PinkBg).padding(20.dp)) {
+                    Box(Modifier.fillMaxWidth().glass(20, Palette.PinkBg).padding(20.dp)) {
                         Column {
                             Text("まだ自動化がありません", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Pink)
                             Text("下のテンプレから1つ足すか、「＋ つくる」で3ステップで作れます。自分にも作れるよ。", color = Palette.Ink, fontSize = 14.sp)
@@ -286,7 +315,7 @@ fun KikkakeApp() {
                         if (macros.size >= 3) Text(if (expanded) "閉じる" else "開く", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.clickable { expanded = !expanded }.padding(6.dp))
                     }
                     if (showAll) Templates.forEach { t ->
-                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.CardWhite).clickable {
+                        Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).clickable {
                             if (macros.any { it.name == t.macroName }) {
                                 scope.launch { snackbarHost.showSnackbar("「${t.macroName}」はもうあるよ") }
                             } else {
@@ -315,7 +344,7 @@ fun RunLogSection(runLog: String) {
         if (parts.size == 2) parts[0] to (parts[1].toLongOrNull() ?: 0L) else null
     }
     if (entries.isEmpty()) return
-    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.CardWhite).padding(16.dp)) {
+    Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("最近の実行", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Palette.Sky)
             entries.forEach { (name, at) ->
@@ -358,7 +387,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
             1 -> {
                 Text("どんなことで\n困ってる？", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, lineHeight = 36.sp)
                 listOf("night" to "夜に音が鳴って困る", "battery" to "電池の減りが気になる", "unknown" to "まだわからない").forEach { (key, label) ->
-                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(if (trouble == key) Palette.PinkBg else Palette.CardWhite).clickable { trouble = key; advancing = true }.padding(18.dp)) {
+                    Box(Modifier.fillMaxWidth().glass(20, if (trouble == key) Palette.PinkBg else Palette.GlassCard).clickable { trouble = key; advancing = true }.padding(18.dp)) {
                         Text(label, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (trouble == key) Palette.Pink else Palette.Ink)
                     }
                 }
@@ -378,7 +407,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
             5 -> { StepPage("ステップ 3 / 3", "保存するだけ", "あとはスマホがやってくれる。", "③", Palette.Purple, Palette.PurpleBg) }
             6 -> {
                 Text("試しに1つ、\n置いてみよう", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, lineHeight = 36.sp)
-                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.CardWhite).padding(18.dp)) {
+                Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(18.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(trialTemplate.title, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                         Text(Logic.summary(Macro(0, trialTemplate.macroName, trialTemplate.trigger, trialTemplate.param, trialTemplate.actions, trialTemplate.constraintType)), color = Palette.InkSoft, fontSize = 13.sp)
@@ -421,7 +450,7 @@ fun StepPage(kicker: String, title: String, desc: String, num: String, color: Co
     Text(kicker, color = color, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     Text(title, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
     Text(desc, fontSize = 16.sp, color = Palette.InkSoft)
-    Box(Modifier.size(110.dp).clip(RoundedCornerShape(28.dp)).background(bg), contentAlignment = Alignment.Center) { Text(num, fontSize = 52.sp, color = color, fontWeight = FontWeight.Bold) }
+    Box(Modifier.size(110.dp).glass(28, bg), contentAlignment = Alignment.Center) { Text(num, fontSize = 52.sp, color = color, fontWeight = FontWeight.Bold) }
 }
 
 // 必要な許可だけを、一覧の下に出す（UX-4）
@@ -439,7 +468,7 @@ fun PermissionSection(tick: Int, macros: List<Macro>) {
     val usageOk = remember(tick) { !needUsage || Engine.hasUsageAccess(context) }
     val exactOk = remember(tick) { !needExact || Engine.canExactAlarm(context) }
     if (notifOk && dndOk && writeOk && usageOk && exactOk) return
-    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.SkyBg).padding(16.dp)) {
+    Box(Modifier.fillMaxWidth().glass(20, Palette.SkyBg).padding(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("権限チェック", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Palette.Sky)
             Text("あなたの自動化に必要な許可だけを表示しています。足りない許可があると、その動作は動きません。", fontSize = 13.sp, color = Palette.Ink)
@@ -486,7 +515,7 @@ fun MacroCard(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
         macro.triggerParam.isNotBlank() -> "${macro.trigger.label}（${macro.triggerParam}）"
         else -> macro.trigger.label
     }
-    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(if (highlighted) Palette.PinkBg else Palette.CardWhite).padding(16.dp)) {
+    Box(Modifier.fillMaxWidth().glass(20, if (highlighted) Palette.PinkBg else Palette.GlassCard).padding(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(macro.name, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
@@ -524,7 +553,7 @@ fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit,
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(apps, key = { it.pkg }) { app ->
                 val sel = selected == app.pkg
-                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (sel) Palette.PinkBg else Palette.CardWhite).clickable { onSelect(app.pkg) }.padding(16.dp)) {
+                Box(Modifier.fillMaxWidth().glass(16, if (sel) Palette.PinkBg else Palette.GlassCard).clickable { onSelect(app.pkg) }.padding(16.dp)) {
                     Text(app.label, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal, color = if (sel) Palette.Pink else Palette.Ink, fontSize = 16.sp)
                 }
             }
@@ -553,7 +582,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                     Text("いつ動かす？", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Pink)
                     TriggerType.values().forEach { t ->
                         val selected = triggerName == t.name
-                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(if (selected) Palette.PinkBg else Palette.CardWhite).clickable { onTrigger(t.name) }.padding(16.dp)) {
+                        Box(Modifier.fillMaxWidth().glass(20, if (selected) Palette.PinkBg else Palette.GlassCard).clickable { onTrigger(t.name) }.padding(16.dp)) {
                             Column { Text("${t.icon} ${t.label}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (selected) Palette.Pink else Palette.Ink); Text(t.detail, color = Palette.InkSoft, fontSize = 13.sp) }
                         }
                     }
@@ -584,7 +613,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                     }
                     if (triggerName == TriggerType.APP_LAUNCH.name) {
                         val selLabel = apps.firstOrNull { it.pkg == param }?.label
-                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.CardWhite).clickable { onOpenPicker("trigger") }.padding(16.dp)) {
+                        Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).clickable { onOpenPicker("trigger") }.padding(16.dp)) {
                             Text(if (selLabel != null) "対象のアプリ：$selLabel（タップで変更）" else "アプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
                         }
                         Text("アプリを開いたかどうかは、約15分ごとにチェックされます。少し遅れて動くことがあります。", color = Palette.InkSoft, fontSize = 12.sp)
@@ -594,7 +623,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                     Text("何をする？（複数えらべる）", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Orange)
                     ActionType.values().forEach { a ->
                         val selected = actionNames.contains(a.name)
-                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(if (selected) Palette.OrangeBg else Palette.CardWhite).clickable { onToggleAction(a.name) }.padding(16.dp)) {
+                        Box(Modifier.fillMaxWidth().glass(20, if (selected) Palette.OrangeBg else Palette.GlassCard).clickable { onToggleAction(a.name) }.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) { Text("${a.icon} ${a.label}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (selected) Palette.Orange else Palette.Ink); Text(a.detail, color = Palette.InkSoft, fontSize = 13.sp) }
                                 if (selected) Text("✓", color = Palette.Orange, fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -603,7 +632,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                     }
                     if (actionNames.contains(ActionType.LAUNCH_APP.name)) {
                         val selLabel = apps.firstOrNull { it.pkg == launchParam }?.label
-                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.CardWhite).clickable { onOpenPicker("action") }.padding(16.dp)) {
+                        Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).clickable { onOpenPicker("action") }.padding(16.dp)) {
                             Text(if (selLabel != null) "起動するアプリ：$selLabel（タップで変更）" else "起動するアプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Orange, fontSize = 15.sp)
                         }
                     }
@@ -621,7 +650,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                     Text("平日だけ＝月〜金／夜だけ＝21時〜朝6時", color = Palette.InkSoft, fontSize = 12.sp)
                     val t = TriggerType.valueOf(triggerName)
                     val items = ActionType.values().filter { actionNames.contains(it.name) }.map { at -> ActionItem(at, if (at == ActionType.LAUNCH_APP) launchParam else "") }
-                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.SkyBg).padding(16.dp)) {
+                    Box(Modifier.fillMaxWidth().glass(20, Palette.SkyBg).padding(16.dp)) {
                         Text("プレビュー：${Logic.summary(Macro(0, "", t, param, items, ConstraintType.valueOf(constraintName)))}", color = Palette.Sky, fontWeight = FontWeight.Bold)
                     }
                     if (saveBlocked) Text("アプリの選択が終わっていないので、まだ保存できません。もどって選んでね。", color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
