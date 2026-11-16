@@ -4,15 +4,15 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 android {
-    namespace = "app.kikkake"
+    namespace = "com.taigashinohara.kikkake"
     compileSdk = 36
     buildToolsVersion = "35.0.0"
     defaultConfig {
-        applicationId = "app.kikkake"
+        applicationId = "com.taigashinohara.kikkake"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 10
+        versionName = "1.0.0"
     }
     signingConfigs {
         val ksFile = rootProject.file(".local/kikkake-debug.jks")
@@ -29,7 +29,9 @@ android {
     buildTypes {
         debug { signingConfigs.findByName("stable")?.let { signingConfig = it } }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfigs.findByName("stable")?.let { signingConfig = it }
         }
     }
