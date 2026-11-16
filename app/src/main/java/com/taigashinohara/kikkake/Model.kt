@@ -5,15 +5,18 @@ enum class TriggerType(val label: String, val detail: String) {
     BATTERY_LOW("電池が少ない", "電池が少なくなったら"),
     WIFI_CONNECTED("Wi-Fi", "Wi-Fiにつながったら"),
     CHARGING_START("充電開始", "充電が始まったら"),
-    APP_LAUNCH("アプリを開く", "選んだアプリを開いたら")
+    APP_LAUNCH("アプリを開いたら", "選んだアプリを開いたら")
 }
 
 enum class ActionType(val label: String, val detail: String) {
     NOTIFICATION("通知を出す", "お知らせを表示する"),
     VOLUME_UP("音量を上げる", "メディア音量を上げる"),
+    VOLUME_DOWN("音量を下げる", "メディア音量を下げる"),
     BRIGHTNESS_DOWN("明るさを下げる", "画面を暗くする"),
+    BRIGHTNESS_UP("明るさを戻す", "画面の明るさを元に戻す"),
     SILENT("マナーモード", "着信音を消す"),
-    LAUNCH_APP("アプリを開く", "選んだアプリを起動する"),
+    SILENT_OFF("マナーモードを解除", "着信音を元に戻す"),
+    LAUNCH_APP("アプリを起動する", "選んだアプリを起動する"),
     FLASHLIGHT("ライト", "ライトをつけ／消す")
 }
 

@@ -54,9 +54,15 @@ object Engine {
         return am.canScheduleExactAlarms()
     }
 
-    fun execute(context: Context, macro: Macro): Boolean {
+    enum class ExecResult { OK, BLOCKED_BY_CONSTRAINT, BLOCKED_BY_PERMISSION, NOTHING_RAN }
+
+    fun execute(context: Context, macro: Macro): Boolean = executeInternal(context, macro, ignoreConstraint = false) == ExecResult.OK
+
+    fun executeTest(context: Context, macro: Macro): ExecResult = executeInternal(context, macro, ignoreConstraint = true)
+
+    private fun executeInternal(context: Context, macro: Macro, ignoreConstraint: Boolean): ExecResult {
         val cal = Calendar.getInstance()
-        if (!Logic.constraintOk(macro.constraintType, cal.get(Calendar.DAY_OF_WEEK), cal.get(Calendar.HOUR_OF_DAY))) return false
+        if (!ignoreConstraint && !Logic.constraintOk(macro.constraintType, cal.get(Calendar.DAY_OF_WEEK), cal.get(Calendar.HOUR_OF_DAY))) return ExecResult.BLOCKED_BY_CONSTRAINT
         var anyOk = false
         var blocked = false
         for (item in macro.actions) {
@@ -76,6 +82,22 @@ object Engine {
                     val am = context.getSystemService(AudioManager::class.java)
                     val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                     am.setStreamVolume(AudioManager.STREAM_MUSIC, (max * 0.7).toInt(), 0); anyOk = true
+                }
+                ActionType.VOLUME_DOWN -> {
+                    val am = context.getSystemService(AudioManager::class.java)
+                    val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                    am.setStreamVolume(AudioManager.STREAM_MUSIC, (max * 0.2).toInt(), 0); anyOk = true
+                }
+                ActionType.BRIGHTNESS_UP -> {
+                    if (!canWriteSettings(context)) { blocked = true } else {
+                        try { Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 140); anyOk = true } catch (e: Exception) { blocked = true }
+                    }
+                }
+                ActionType.SILENT_OFF -> {
+                    if (!hasDndAccess(context)) { blocked = true } else {
+                        val am = context.getSystemService(AudioManager::class.java)
+                        am.ringerMode = AudioManager.RINGER_MODE_NORMAL; anyOk = true
+                    }
                 }
                 ActionType.BRIGHTNESS_DOWN -> {
                     if (!canWriteSettings(context)) { blocked = true } else {
@@ -111,11 +133,17 @@ object Engine {
         }
         if (blocked && !anyOk) Toast.makeText(context, "許可が足りない動作があります。ホームの「権限チェック」から許可してね", Toast.LENGTH_LONG).show()
         if (anyOk) {
+            val now = System.currentTimeMillis()
             val store = MacroStore(context)
-            val list = store.load().map { if (it.id == macro.id) it.copy(lastRunAt = System.currentTimeMillis()) else it }
+            val list = store.load().map { if (it.id == macro.id) it.copy(lastRunAt = now) else it }
             store.save(list)
+            val st = StateStore(context)
+            val entry = "${macro.name}|$now"
+            val items = (listOf(entry) + st.runLog.split("\n").filter { it.isNotBlank() }).take(20)
+            st.runLog = items.joinToString("\n")
+            return ExecResult.OK
         }
-        return anyOk
+        return if (blocked) ExecResult.BLOCKED_BY_PERMISSION else ExecResult.NOTHING_RAN
     }
 
     fun scheduleTimeAlarm(context: Context, macro: Macro) {

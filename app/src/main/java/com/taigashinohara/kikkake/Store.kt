@@ -70,6 +70,9 @@ class StateStore(context: Context) {
     var lastUsageCheck: Long
         get() = prefs.getLong("lastUsageCheck", 0L)
         set(v) = prefs.edit().putLong("lastUsageCheck", v).apply()
+    var runLog: String
+        get() = prefs.getString("runLog", "") ?: ""
+        set(v) = prefs.edit().putString("runLog", v).apply()
     var onboardingDone: Boolean
         get() = prefs.getBoolean("onboardingDone", false)
         set(v) = prefs.edit().putBoolean("onboardingDone", v).apply()

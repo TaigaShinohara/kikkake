@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -19,6 +20,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -32,11 +35,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -105,6 +110,11 @@ fun KikkakeApp() {
     var macros by remember { mutableStateOf(store.load()) }
     var screen by rememberSaveable { mutableStateOf(if (stateStore.onboardingDone) "home" else "onboarding") }
     var resumeTick by remember { mutableIntStateOf(0) }
+    var highlightId by remember { mutableStateOf(-1L) }
+    var pickerTarget by rememberSaveable { mutableStateOf("") }
+    val snackbarHost = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -113,9 +123,10 @@ fun KikkakeApp() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
+    // 通知許可は、最初の自動化ができてから頼む（UX-15）
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { resumeTick++ }
-    LaunchedEffect(screen) {
-        if (screen == "home" && Build.VERSION.SDK_INT >= 33 && !Engine.hasNotificationPermission(context)) {
+    LaunchedEffect(screen, macros.size) {
+        if (screen == "home" && macros.isNotEmpty() && Build.VERSION.SDK_INT >= 33 && !Engine.hasNotificationPermission(context)) {
             permLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
     }
@@ -144,8 +155,31 @@ fun KikkakeApp() {
         wStep = 1; screen = "wizard"
     }
 
+    fun addMacro(m: Macro, message: String) {
+        saveMacros(macros + m)
+        Engine.scheduleTimeAlarm(context, m)
+        highlightId = m.id
+        scope.launch {
+            val idx = macros.indexOfFirst { it.id == m.id }
+            // ヘッダー分を概算でずらして新規カードへ寄せる
+            listState.animateScrollToItem(if (idx >= 0) idx + 3 else 3)
+            snackbarHost.showSnackbar(message)
+        }
+    }
+
     if (screen == "onboarding") {
         OnboardingScreen(onFinish = { stateStore.onboardingDone = true; reload(); screen = "home" })
+        return
+    }
+
+    if (pickerTarget.isNotEmpty()) {
+        BackHandler { pickerTarget = "" }
+        AppPickerScreen(
+            title = if (pickerTarget == "trigger") "どのアプリを開いたら？" else "どのアプリを起動する？",
+            selected = if (pickerTarget == "trigger") wParam else wLaunchParam,
+            onSelect = { pkg -> if (pickerTarget == "trigger") wParam = pkg else wLaunchParam = pkg; pickerTarget = "" },
+            onBack = { pickerTarget = "" }
+        )
         return
     }
 
@@ -158,6 +192,7 @@ fun KikkakeApp() {
             onParam = { wParam = it },
             onToggleAction = { n -> wActions = if (wActions.contains(n)) { if (wActions.size > 1) wActions - n else wActions } else wActions + n },
             onLaunchParam = { wLaunchParam = it },
+            onOpenPicker = { pickerTarget = it },
             onConstraint = { wConstraint = it }, onName = { wName = it },
             onNext = { if (wStep < 3) wStep++ },
             onBack = { if (wStep > 1) wStep-- else screen = "home" },
@@ -171,10 +206,10 @@ fun KikkakeApp() {
                     if (old != null) Engine.cancelTimeAlarm(context, old)
                     saveMacros(macros.map { if (it.id == editingId) updated else it })
                     Engine.scheduleTimeAlarm(context, updated)
+                    Toast.makeText(context, "直したよ", Toast.LENGTH_SHORT).show()
                 } else {
                     val m = Macro(id = System.currentTimeMillis(), name = nm, trigger = t, triggerParam = wParam, actions = items, constraintType = ConstraintType.valueOf(wConstraint), enabled = true)
-                    saveMacros(macros + m)
-                    Engine.scheduleTimeAlarm(context, m)
+                    addMacro(m, "作れたよ！「${nm}」")
                 }
                 screen = "home"
             }
@@ -184,19 +219,19 @@ fun KikkakeApp() {
 
     Scaffold(
         containerColor = Palette.Paper,
+        snackbarHost = { SnackbarHost(snackbarHost) },
         floatingActionButton = {
             FloatingActionButton(onClick = { startWizard(null) }, containerColor = Palette.Pink, contentColor = Color.White) {
                 Text("＋ つくる", fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp))
             }
         }
     ) { pad ->
-        LazyColumn(Modifier.fillMaxSize().padding(pad).padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(pad).padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item {
                 Spacer(Modifier.height(10.dp))
                 Text("きっかけ", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                 Text("きっかけを置くだけで、スマホが動く。", color = Palette.InkSoft, fontSize = 15.sp)
             }
-            item { PermissionSection(resumeTick, macros.any { it.trigger == TriggerType.APP_LAUNCH }) }
             if (macros.isEmpty()) {
                 item {
                     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.PinkBg).padding(20.dp)) {
@@ -207,33 +242,85 @@ fun KikkakeApp() {
                     }
                 }
             }
-            items(macros, key = { it.id }) { m ->
+            itemsIndexed(macros, key = { _, m -> m.id }) { _, m ->
                 MacroCard(
-                    macro = m,
+                    macro = m, highlighted = m.id == highlightId,
                     onToggle = {
                         val updated = m.copy(enabled = !m.enabled)
                         saveMacros(macros.map { if (it.id == m.id) updated else it })
                         if (updated.enabled) Engine.scheduleTimeAlarm(context, updated) else Engine.cancelTimeAlarm(context, updated)
                     },
-                    onTest = { Engine.execute(context, m); reload() },
+                    onTest = {
+                        val r = Engine.executeTest(context, m)
+                        val msg = when (r) {
+                            Engine.ExecResult.OK -> "動いたよ ✓"
+                            Engine.ExecResult.BLOCKED_BY_PERMISSION -> "許可が足りない動作があったよ。下の「権限チェック」を見てね"
+                            else -> "今は動かせる動作がなかったよ"
+                        }
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        reload()
+                    },
                     onEdit = { startWizard(m) },
-                    onDelete = { Engine.cancelTimeAlarm(context, m); saveMacros(macros.filter { it.id != m.id }) }
+                    onDelete = {
+                        Engine.cancelTimeAlarm(context, m)
+                        val removed = m
+                        saveMacros(macros.filter { it.id != m.id })
+                        scope.launch {
+                            val res = snackbarHost.showSnackbar("「${removed.name}」を消したよ", actionLabel = "元に戻す", duration = SnackbarDuration.Short)
+                            if (res == SnackbarResult.ActionPerformed) {
+                                saveMacros(store.load() + removed)
+                                Engine.scheduleTimeAlarm(context, removed)
+                            }
+                        }
+                    }
                 )
             }
-            item { Text("テンプレから始める", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Purple, modifier = Modifier.padding(top = 8.dp)) }
-            items(Templates) { t ->
-                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.CardWhite).clickable {
-                    val m = Macro(id = System.currentTimeMillis() + t.title.hashCode(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
-                    saveMacros(macros + m); Engine.scheduleTimeAlarm(context, m)
-                }.padding(16.dp)) {
-                    Column {
-                        Text(t.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text(Logic.summary(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType)), color = Palette.InkSoft, fontSize = 13.sp)
-                        Text("タップで追加", color = Palette.Sky, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            item { PermissionSection(resumeTick, macros) }
+            item { RunLogSection(stateStore.runLog) }
+            item {
+                var expanded by remember { mutableStateOf(false) }
+                val showAll = macros.size < 3 || expanded
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text("テンプレから始める", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Purple, modifier = Modifier.weight(1f))
+                        if (macros.size >= 3) Text(if (expanded) "閉じる" else "開く", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.clickable { expanded = !expanded }.padding(6.dp))
+                    }
+                    if (showAll) Templates.forEach { t ->
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.CardWhite).clickable {
+                            if (macros.any { it.name == t.macroName }) {
+                                scope.launch { snackbarHost.showSnackbar("「${t.macroName}」はもうあるよ") }
+                            } else {
+                                val m = Macro(id = System.currentTimeMillis() + t.title.hashCode(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
+                                addMacro(m, "追加したよ！「${t.macroName}」")
+                            }
+                        }.padding(16.dp)) {
+                            Column {
+                                Text(t.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text(Logic.summary(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType)), color = Palette.InkSoft, fontSize = 13.sp)
+                                Text("タップで追加", color = Palette.Sky, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }
             item { Spacer(Modifier.height(90.dp)) }
+        }
+    }
+}
+
+@Composable
+fun RunLogSection(runLog: String) {
+    val entries = runLog.split("\n").filter { it.isNotBlank() }.take(5).mapNotNull {
+        val parts = it.split("|")
+        if (parts.size == 2) parts[0] to (parts[1].toLongOrNull() ?: 0L) else null
+    }
+    if (entries.isEmpty()) return
+    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.CardWhite).padding(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("最近の実行", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Palette.Sky)
+            entries.forEach { (name, at) ->
+                Text("✓ $name（${SimpleDateFormat("M月d日 HH:mm", Locale.JAPAN).format(Date(at))}）", fontSize = 13.sp, color = Palette.Ink)
+            }
         }
     }
 }
@@ -248,6 +335,11 @@ fun OnboardingScreen(onFinish: () -> Unit) {
 
     LaunchedEffect(advancing) {
         if (advancing) { delay(400); page = 2; advancing = false }
+    }
+
+    val trialTemplate = when (trouble) {
+        "battery" -> Templates[2]
+        else -> Templates[0]
     }
 
     Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -288,14 +380,18 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                 Text("試しに1つ、\n置いてみよう", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, lineHeight = 36.sp)
                 Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.CardWhite).padding(18.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("22時に静かに", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                        Text("22:00 → マナーモード＋明るさを下げる", color = Palette.InkSoft, fontSize = 13.sp)
+                        Text(trialTemplate.title, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                        Text(Logic.summary(Macro(0, trialTemplate.macroName, trialTemplate.trigger, trialTemplate.param, trialTemplate.actions, trialTemplate.constraintType)), color = Palette.InkSoft, fontSize = 13.sp)
                     }
                 }
+                Text("※ この自動化には、端末の許可が要る動作が含まれます。ホームに案内が出るので、あとで許可すればOKです。", color = Palette.InkSoft, fontSize = 12.sp)
                 Button(onClick = {
-                    val t = Templates[0]
-                    val m = Macro(id = System.currentTimeMillis(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
-                    store.save(store.load() + m); Engine.scheduleTimeAlarm(context, m); page = 7
+                    val t = trialTemplate
+                    if (store.load().none { it.name == t.macroName }) {
+                        val m = Macro(id = System.currentTimeMillis(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
+                        store.save(store.load() + m); Engine.scheduleTimeAlarm(context, m)
+                    }
+                    page = 7
                 }, colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink), shape = RoundedCornerShape(999.dp), modifier = Modifier.fillMaxWidth()) { Text("これを置く", fontWeight = FontWeight.Bold) }
                 OutlinedButton(onClick = { onFinish() }, shape = RoundedCornerShape(999.dp), modifier = Modifier.fillMaxWidth()) { Text("あとで試す") }
             }
@@ -311,7 +407,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                 Text(if (page >= 7) "始める" else "次へ", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
         }
-        if (page == 0 || page == 2) Text("スキップ", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().clickable { onFinish() }.padding(4.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        if (page == 0 || page == 2) Text("スキップ", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().clickable { onFinish() }.padding(4.dp), textAlign = TextAlign.Center)
     }
 }
 
@@ -328,19 +424,25 @@ fun StepPage(kicker: String, title: String, desc: String, num: String, color: Co
     Box(Modifier.size(110.dp).clip(RoundedCornerShape(28.dp)).background(bg), contentAlignment = Alignment.Center) { Text(num, fontSize = 52.sp, color = color, fontWeight = FontWeight.Bold) }
 }
 
+// 必要な許可だけを、一覧の下に出す（UX-4）
 @Composable
-fun PermissionSection(tick: Int, needsUsage: Boolean) {
+fun PermissionSection(tick: Int, macros: List<Macro>) {
     val context = LocalContext.current
-    val notifOk = remember(tick) { Engine.hasNotificationPermission(context) }
-    val dndOk = remember(tick) { Engine.hasDndAccess(context) }
-    val writeOk = remember(tick) { Engine.canWriteSettings(context) }
-    val usageOk = remember(tick) { !needsUsage || Engine.hasUsageAccess(context) }
-    val exactOk = remember(tick) { Engine.canExactAlarm(context) }
+    val needNotif = macros.any { m -> m.actions.any { it.type == ActionType.NOTIFICATION } }
+    val needDnd = macros.any { m -> m.actions.any { it.type == ActionType.SILENT || it.type == ActionType.SILENT_OFF } }
+    val needWrite = macros.any { m -> m.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP } }
+    val needExact = macros.any { it.trigger == TriggerType.TIME }
+    val needUsage = macros.any { it.trigger == TriggerType.APP_LAUNCH }
+    val notifOk = remember(tick) { !needNotif || Engine.hasNotificationPermission(context) }
+    val dndOk = remember(tick) { !needDnd || Engine.hasDndAccess(context) }
+    val writeOk = remember(tick) { !needWrite || Engine.canWriteSettings(context) }
+    val usageOk = remember(tick) { !needUsage || Engine.hasUsageAccess(context) }
+    val exactOk = remember(tick) { !needExact || Engine.canExactAlarm(context) }
     if (notifOk && dndOk && writeOk && usageOk && exactOk) return
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.SkyBg).padding(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("権限チェック", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Palette.Sky)
-            Text("足りない許可があると、その動作は動きません。使う動作の分だけ許可してね。", fontSize = 13.sp, color = Palette.Ink)
+            Text("あなたの自動化に必要な許可だけを表示しています。足りない許可があると、その動作は動きません。", fontSize = 13.sp, color = Palette.Ink)
             if (!notifOk) PermRow("通知", "「通知を出す」に必要") {
                 val i = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply { putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName) }
                 context.startActivity(i)
@@ -358,7 +460,7 @@ fun PermissionSection(tick: Int, needsUsage: Boolean) {
                     context.startActivity(i)
                 }
             }
-            if (!usageOk) PermRow("使用状況へのアクセス", "「アプリを開く」きっかけに必要") {
+            if (!usageOk) PermRow("使用状況へのアクセス", "「アプリを開いたら」きっかけに必要") {
                 context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             }
         }
@@ -377,31 +479,30 @@ fun PermRow(title: String, desc: String, onClick: () -> Unit) {
 }
 
 @Composable
-fun MacroCard(macro: Macro, onToggle: () -> Unit, onTest: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
-    val context = LocalContext.current
-    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.CardWhite).padding(16.dp)) {
+fun MacroCard(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+    val apps = rememberApps()
+    val triggerChip = when {
+        macro.trigger == TriggerType.APP_LAUNCH && macro.triggerParam.isNotBlank() -> "アプリを開いたら（${apps.firstOrNull { it.pkg == macro.triggerParam }?.label ?: macro.triggerParam.substringAfterLast('.')}）"
+        macro.triggerParam.isNotBlank() -> "${macro.trigger.label}（${macro.triggerParam}）"
+        else -> macro.trigger.label
+    }
+    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(if (highlighted) Palette.PinkBg else Palette.CardWhite).padding(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(macro.name, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
                 Switch(checked = macro.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Pink))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(Palette.PinkBg).padding(horizontal = 10.dp, vertical = 4.dp)) {
-                    val tl = if (macro.trigger == TriggerType.APP_LAUNCH && macro.triggerParam.isNotBlank()) {
-                        val apps = rememberApps()
-                        apps.firstOrNull { it.pkg == macro.triggerParam }?.label ?: macro.trigger.label
-                    } else macro.trigger.label
-                    Text(tl, color = Palette.Pink, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
+                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(Palette.PinkBg).padding(horizontal = 10.dp, vertical = 4.dp)) { Text(triggerChip, color = Palette.Pink, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                 Text("→", color = Palette.InkSoft)
                 macro.actions.forEach { item ->
-                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(Palette.OrangeBg).padding(horizontal = 10.dp, vertical = 4.dp)) { Text(item.type.label, color = Palette.Orange, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    val label = if (item.type == ActionType.LAUNCH_APP && item.param.isNotBlank()) "${item.type.label}（${apps.firstOrNull { it.pkg == item.param }?.label ?: item.param.substringAfterLast('.')}）" else item.type.label
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(Palette.OrangeBg).padding(horizontal = 10.dp, vertical = 4.dp)) { Text(label, color = Palette.Orange, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                 }
                 if (macro.constraintType != ConstraintType.NONE) {
                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(Palette.PurpleBg).padding(horizontal = 10.dp, vertical = 4.dp)) { Text(macro.constraintType.label, color = Palette.Purple, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                 }
             }
-            Text(Logic.summary(macro), color = Palette.InkSoft, fontSize = 13.sp)
             if (macro.lastRunAt > 0) Text("最終実行：${SimpleDateFormat("M月d日 HH:mm", Locale.JAPAN).format(Date(macro.lastRunAt))}", color = Palette.Sky, fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onTest, colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink), shape = RoundedCornerShape(999.dp)) { Text("テスト実行") }
@@ -413,21 +514,29 @@ fun MacroCard(macro: Macro, onToggle: () -> Unit, onTest: () -> Unit, onEdit: ()
 }
 
 @Composable
-fun AppPicker(selected: String, onSelect: (String) -> Unit, accent: Color, accentBg: Color) {
+fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit, onBack: () -> Unit) {
     val apps = rememberApps()
-    LazyColumn(Modifier.heightIn(max = 260.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        items(apps, key = { it.pkg }) { app ->
-            val sel = selected == app.pkg
-            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (sel) accentBg else Palette.CardWhite).clickable { onSelect(app.pkg) }.padding(12.dp)) {
-                Text(app.label, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal, color = if (sel) accent else Palette.Ink, fontSize = 14.sp)
+    Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("← もどる", color = Palette.Sky, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onBack() }.padding(6.dp))
+        }
+        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(apps, key = { it.pkg }) { app ->
+                val sel = selected == app.pkg
+                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (sel) Palette.PinkBg else Palette.CardWhite).clickable { onSelect(app.pkg) }.padding(16.dp)) {
+                    Text(app.label, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal, color = if (sel) Palette.Pink else Palette.Ink, fontSize = 16.sp)
+                }
             }
         }
+        if (apps.isEmpty()) Text("アプリ一覧が取得できませんでした", color = Palette.InkSoft, fontSize = 13.sp)
     }
-    if (apps.isEmpty()) Text("アプリ一覧が取得できませんでした", color = Palette.InkSoft, fontSize = 13.sp)
 }
 
 @Composable
-fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
+fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
+    val apps = rememberApps()
+    val saveBlocked = (triggerName == TriggerType.APP_LAUNCH.name && param.isBlank()) || (actionNames.contains(ActionType.LAUNCH_APP.name) && launchParam.isBlank())
     Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text(if (isEditing) "自動化を編集" else "自動化をつくる", fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -468,11 +577,17 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) Palette.Pink else Palette.Line).clickable { onParam(v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
                             }
                         }
+                        Text("電池の残りは、アプリを閉じていても約15分ごとにチェックされます。少し遅れて動くことがあります。", color = Palette.InkSoft, fontSize = 12.sp)
+                    }
+                    if (triggerName == TriggerType.WIFI_CONNECTED.name) {
+                        Text("Wi-Fiの接続は、アプリを閉じていても約15分ごとにチェックされます。少し遅れて動くことがあります。", color = Palette.InkSoft, fontSize = 12.sp)
                     }
                     if (triggerName == TriggerType.APP_LAUNCH.name) {
-                        Text("どのアプリを開いたら？", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Palette.Pink)
-                        AppPicker(selected = param, onSelect = onParam, accent = Palette.Pink, accentBg = Palette.PinkBg)
-                        Text("電池・Wi-Fi・アプリ起動は、アプリを閉じていても約15分ごとにチェックされます。充電開始と時刻はその場で動きます。", color = Palette.InkSoft, fontSize = 12.sp)
+                        val selLabel = apps.firstOrNull { it.pkg == param }?.label
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.CardWhite).clickable { onOpenPicker("trigger") }.padding(16.dp)) {
+                            Text(if (selLabel != null) "対象のアプリ：$selLabel（タップで変更）" else "アプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
+                        }
+                        Text("アプリを開いたかどうかは、約15分ごとにチェックされます。少し遅れて動くことがあります。", color = Palette.InkSoft, fontSize = 12.sp)
                     }
                 }
                 2 -> {
@@ -487,8 +602,10 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                         }
                     }
                     if (actionNames.contains(ActionType.LAUNCH_APP.name)) {
-                        Text("どのアプリを開く？", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Palette.Orange)
-                        AppPicker(selected = launchParam, onSelect = onLaunchParam, accent = Palette.Orange, accentBg = Palette.OrangeBg)
+                        val selLabel = apps.firstOrNull { it.pkg == launchParam }?.label
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.CardWhite).clickable { onOpenPicker("action") }.padding(16.dp)) {
+                            Text(if (selLabel != null) "起動するアプリ：$selLabel（タップで変更）" else "起動するアプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Orange, fontSize = 15.sp)
+                        }
                     }
                 }
                 else -> {
@@ -501,20 +618,20 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                             Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (selected) Palette.Purple else Palette.Line).clickable { onConstraint(c.name) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(c.label, color = if (selected) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
                         }
                     }
+                    Text("平日だけ＝月〜金／夜だけ＝21時〜朝6時", color = Palette.InkSoft, fontSize = 12.sp)
                     val t = TriggerType.valueOf(triggerName)
                     val items = ActionType.values().filter { actionNames.contains(it.name) }.map { at -> ActionItem(at, if (at == ActionType.LAUNCH_APP) launchParam else "") }
                     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.SkyBg).padding(16.dp)) {
                         Text("プレビュー：${Logic.summary(Macro(0, "", t, param, items, ConstraintType.valueOf(constraintName)))}", color = Palette.Sky, fontWeight = FontWeight.Bold)
                     }
-                    if (t == TriggerType.APP_LAUNCH && param.isBlank()) Text("注意：きっかけのアプリが選ばれていません。ステップ1で選んでね。", color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    if (actionNames.contains(ActionType.LAUNCH_APP.name) && launchParam.isBlank()) Text("注意：「アプリを開く」には、ステップ2でアプリを選んでね。", color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    if (saveBlocked) Text("アプリの選択が終わっていないので、まだ保存できません。もどって選んでね。", color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(onClick = onBack, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("もどる") }
             if (step < 3) Button(onClick = onNext, colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink), shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("次へ") }
-            else Button(onClick = onSave, colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink), shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("保存する") }
+            else Button(onClick = onSave, enabled = !saveBlocked, colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink), shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("保存する") }
         }
     }
 }
