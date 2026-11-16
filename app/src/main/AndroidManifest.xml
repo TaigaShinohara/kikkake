@@ -4,6 +4,7 @@
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
     </queries>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -17,6 +18,12 @@
         <receiver android:name=".AlarmReceiver" android:exported="false" />
         <receiver android:name=".PowerConnectedReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.ACTION_POWER_CONNECTED" /></intent-filter>
+        </receiver>
+        <receiver android:name=".PowerDisconnectedReceiver" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.ACTION_POWER_DISCONNECTED" /></intent-filter>
+        </receiver>
+        <receiver android:name=".HeadsetReceiver" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.HEADSET_PLUG" /></intent-filter>
         </receiver>
         <receiver android:name=".BootReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>

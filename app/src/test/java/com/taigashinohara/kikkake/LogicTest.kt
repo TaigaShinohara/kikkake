@@ -14,6 +14,11 @@ class LogicTest {
         val n = Logic.autoName(TriggerType.TIME, listOf(ActionItem(ActionType.SILENT), ActionItem(ActionType.BRIGHTNESS_DOWN)))
         assertTrue(n.contains("など2件"))
     }
+    @Test fun allPatternsHaveIcons() {
+        TriggerType.values().forEach { assertTrue(it.icon.isNotBlank()) }
+        ActionType.values().forEach { assertTrue(it.icon.isNotBlank()) }
+    }
+
     @Test fun summary_includesParamAndConstraint() {
         val m = Macro(1, "test", TriggerType.TIME, "22:00", listOf(ActionItem(ActionType.SILENT), ActionItem(ActionType.BRIGHTNESS_DOWN)), ConstraintType.WEEKDAY)
         val s = Logic.summary(m)

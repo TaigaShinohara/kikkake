@@ -429,7 +429,7 @@ fun StepPage(kicker: String, title: String, desc: String, num: String, color: Co
 fun PermissionSection(tick: Int, macros: List<Macro>) {
     val context = LocalContext.current
     val needNotif = macros.any { m -> m.actions.any { it.type == ActionType.NOTIFICATION } }
-    val needDnd = macros.any { m -> m.actions.any { it.type == ActionType.SILENT || it.type == ActionType.SILENT_OFF } }
+    val needDnd = macros.any { m -> m.actions.any { it.type == ActionType.SILENT || it.type == ActionType.SILENT_OFF || it.type == ActionType.DND_ON } }
     val needWrite = macros.any { m -> m.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP } }
     val needExact = macros.any { it.trigger == TriggerType.TIME }
     val needUsage = macros.any { it.trigger == TriggerType.APP_LAUNCH }
@@ -493,10 +493,10 @@ fun MacroCard(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
                 Switch(checked = macro.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Pink))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(Palette.PinkBg).padding(horizontal = 10.dp, vertical = 4.dp)) { Text(triggerChip, color = Palette.Pink, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(Palette.PinkBg).padding(horizontal = 10.dp, vertical = 4.dp)) { Text("${macro.trigger.icon} $triggerChip", color = Palette.Pink, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                 Text("→", color = Palette.InkSoft)
                 macro.actions.forEach { item ->
-                    val label = if (item.type == ActionType.LAUNCH_APP && item.param.isNotBlank()) "${item.type.label}（${apps.firstOrNull { it.pkg == item.param }?.label ?: item.param.substringAfterLast('.')}）" else item.type.label
+                    val label = "${item.type.icon} " + (if (item.type == ActionType.LAUNCH_APP && item.param.isNotBlank()) "${item.type.label}（${apps.firstOrNull { it.pkg == item.param }?.label ?: item.param.substringAfterLast('.')}）" else item.type.label)
                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(Palette.OrangeBg).padding(horizontal = 10.dp, vertical = 4.dp)) { Text(label, color = Palette.Orange, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                 }
                 if (macro.constraintType != ConstraintType.NONE) {
@@ -554,7 +554,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                     TriggerType.values().forEach { t ->
                         val selected = triggerName == t.name
                         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(if (selected) Palette.PinkBg else Palette.CardWhite).clickable { onTrigger(t.name) }.padding(16.dp)) {
-                            Column { Text(t.label, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (selected) Palette.Pink else Palette.Ink); Text(t.detail, color = Palette.InkSoft, fontSize = 13.sp) }
+                            Column { Text("${t.icon} ${t.label}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (selected) Palette.Pink else Palette.Ink); Text(t.detail, color = Palette.InkSoft, fontSize = 13.sp) }
                         }
                     }
                     if (triggerName == TriggerType.TIME.name) {
@@ -596,7 +596,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                         val selected = actionNames.contains(a.name)
                         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(if (selected) Palette.OrangeBg else Palette.CardWhite).clickable { onToggleAction(a.name) }.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) { Text(a.label, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (selected) Palette.Orange else Palette.Ink); Text(a.detail, color = Palette.InkSoft, fontSize = 13.sp) }
+                                Column(Modifier.weight(1f)) { Text("${a.icon} ${a.label}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (selected) Palette.Orange else Palette.Ink); Text(a.detail, color = Palette.InkSoft, fontSize = 13.sp) }
                                 if (selected) Text("✓", color = Palette.Orange, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                             }
                         }

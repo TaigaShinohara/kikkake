@@ -20,6 +20,21 @@ class PowerConnectedReceiver : BroadcastReceiver() {
     }
 }
 
+class PowerDisconnectedReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == Intent.ACTION_POWER_DISCONNECTED) Engine.onChargingDone(context)
+    }
+}
+
+class HeadsetReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == Intent.ACTION_HEADSET_PLUG) {
+            val state = intent.getIntExtra("state", -1)
+            if (state == 1) Engine.onHeadsetPlugged(context)
+        }
+    }
+}
+
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getLongExtra(Engine.EXTRA_MACRO_ID, -1L)

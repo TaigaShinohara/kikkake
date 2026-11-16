@@ -10,6 +10,13 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
+import android.media.RingtoneManager
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.speech.tts.TextToSpeech
+import android.view.KeyEvent
+import java.util.Locale
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
@@ -118,6 +125,52 @@ object Engine {
                         try { context.startActivity(intent); anyOk = true } catch (e: Exception) { blocked = true }
                     }
                 }
+                ActionType.SPEAK -> {
+                    try {
+                        var tts: TextToSpeech? = null
+                        tts = TextToSpeech(context.applicationContext) { status ->
+                            if (status == TextToSpeech.SUCCESS) {
+                                tts?.language = Locale.JAPAN
+                                tts?.speak("「${macro.name}」を実行しました", TextToSpeech.QUEUE_FLUSH, null, "kikkake-tts")
+                            }
+                        }
+                        anyOk = true
+                    } catch (e: Exception) { }
+                }
+                ActionType.RING -> {
+                    try {
+                        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                        RingtoneManager.getRingtone(context, uri)?.play(); anyOk = true
+                    } catch (e: Exception) { }
+                }
+                ActionType.MEDIA_PLAY_PAUSE -> {
+                    try {
+                        val am = context.getSystemService(AudioManager::class.java)
+                        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
+                        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
+                        anyOk = true
+                    } catch (e: Exception) { }
+                }
+                ActionType.MEDIA_NEXT -> {
+                    try {
+                        val am = context.getSystemService(AudioManager::class.java)
+                        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_NEXT))
+                        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_NEXT))
+                        anyOk = true
+                    } catch (e: Exception) { }
+                }
+                ActionType.DND_ON -> {
+                    if (!hasDndAccess(context)) { blocked = true } else {
+                        val nm = context.getSystemService(NotificationManager::class.java)
+                        nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_NONE); anyOk = true
+                    }
+                }
+                ActionType.VIBRATE -> {
+                    try {
+                        val vib = if (Build.VERSION.SDK_INT >= 31) context.getSystemService(VibratorManager::class.java).defaultVibrator else @Suppress("DEPRECATION") context.getSystemService(Vibrator::class.java)
+                        vib.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 300, 120, 300), -1)); anyOk = true
+                    } catch (e: Exception) { }
+                }
                 ActionType.FLASHLIGHT -> {
                     try {
                         val cm = context.getSystemService(CameraManager::class.java)
@@ -201,6 +254,14 @@ object Engine {
 
     fun onChargingStarted(context: Context) {
         MacroStore(context).load().filter { it.enabled && it.trigger == TriggerType.CHARGING_START }.forEach { execute(context, it) }
+    }
+
+    fun onChargingDone(context: Context) {
+        MacroStore(context).load().filter { it.enabled && it.trigger == TriggerType.CHARGING_DONE }.forEach { execute(context, it) }
+    }
+
+    fun onHeadsetPlugged(context: Context) {
+        MacroStore(context).load().filter { it.enabled && it.trigger == TriggerType.HEADSET }.forEach { execute(context, it) }
     }
 
     fun checkAppLaunches(context: Context) {
