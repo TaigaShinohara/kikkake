@@ -64,6 +64,9 @@ object Palette {
     var GlassHi = Color.White.copy(alpha = 0.75f)
     var GlassLo = Color.White.copy(alpha = 0.15f)
     var GlassCard = Color.White.copy(alpha = 0.58f)
+    // Simple Glass v1.1「やんわりグラデーション」：読み物ガラスは上62%→下54%（平均58%）
+    var GlassCardTop = Color.White.copy(alpha = 0.62f)
+    var GlassCardBottom = Color.White.copy(alpha = 0.54f)
     var BlobA = Color(0xFFF8BBD0)
     var BlobB = Color(0xFFFFCC80)
     var BlobC = Color(0xFF81D4FA)
@@ -78,16 +81,23 @@ object Palette {
             CardWhite = Color(0xFF292219); Line = Color(0xFF3A322A)
             GlassHi = Color.White.copy(alpha = 0.30f); GlassLo = Color.White.copy(alpha = 0.06f)
             GlassCard = Color.White.copy(alpha = 0.16f)
+            GlassCardTop = Color.White.copy(alpha = 0.19f)
+            GlassCardBottom = Color.White.copy(alpha = 0.13f)
             BlobA = Color(0xFF6A2440); BlobB = Color(0xFF6A3A1C); BlobC = Color(0xFF14425E)
         }
     }
 }
 
 // Liquid Glass風：半透明の面＋上辺のハイライトふち＋ぼかした色の光
+// 読み物ガラス（GlassCard）は Simple Glass v1.1 のやんわりグラデーション（上→下・同系色・段差約8pt）で塗る
 fun Modifier.glass(radius: Int, color: Color): Modifier {
     val shape = RoundedCornerShape(radius.dp)
-    return this.clip(shape).background(color)
-        .border(1.dp, Brush.verticalGradient(listOf(Palette.GlassHi, Palette.GlassLo)), shape)
+    val base = if (color == Palette.GlassCard) {
+        this.clip(shape).background(Brush.verticalGradient(listOf(Palette.GlassCardTop, Palette.GlassCardBottom)))
+    } else {
+        this.clip(shape).background(color)
+    }
+    return base.border(1.dp, Brush.verticalGradient(listOf(Palette.GlassHi, Palette.GlassLo)), shape)
 }
 
 @Composable
