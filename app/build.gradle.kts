@@ -16,7 +16,11 @@ android {
     }
     signingConfigs {
         val ksFile = rootProject.file(".local/kikkake-debug.jks")
-        val ksPass = rootProject.file(".local/keystore-password.txt").takeIf { it.exists() }?.readText()?.trim()
+        // Secrets live in .env (gitignored): KIKKAKE_KEYSTORE_PASSWORD=<password>
+        val envPass = rootProject.file(".env").takeIf { it.exists() }?.readLines()
+            ?.firstOrNull { it.startsWith("KIKKAKE_KEYSTORE_PASSWORD=") }
+            ?.substringAfter("=")?.trim()?.takeIf { it.isNotBlank() }
+        val ksPass = envPass ?: rootProject.file(".local/keystore-password.txt").takeIf { it.exists() }?.readText()?.trim()
         if (ksFile.exists() && !ksPass.isNullOrBlank()) {
             create("stable") {
                 storeFile = ksFile
