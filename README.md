@@ -2,10 +2,18 @@
 
 **きっかけを置くだけで、スマホが動く。**
 
-MacroDroidのような自動化を、誰でも3ステップで作れるようにしたAndroidアプリ。
-①きっかけ → ②やること → ③条件（任意）を色分けブロックで選ぶだけ。
+自動化アプリをもっと簡単に。①きっかけ → ②やること → ③条件（任意）を、色分けされたブロックから選ぶ3ステップで、誰でも自動化が作れるAndroidアプリです。
 
-- パッケージ: app.kikkake / バージョン 0.1.0
-- 最終ゴール: ストアリリース
-- ビルド: `./build.sh assembleDebug` / テスト: `./build.sh testDebugUnitTest`
-- 仕様: docs/SPEC.md / アート方針: docs/ART_DIRECTION.md / UIカタログ: docs/UI_CATALOG.md
+- きっかけ7種：時刻／電池が少ない／Wi-Fi／充電開始／ケーブルを抜いたら／ヘッドホン／アプリを開いたら
+- やること16種：通知・声で知らせる・音・おやすみモード・ライト・明るさ など
+- データは端末の中だけ。外部に送信しません（プライバシーポリシーは docs/policy/index.html）
+
+## 開発
+
+- パッケージ: com.taigashinohara.kikkake ／ 現在のバージョン: 1.4.3
+- ビルド: `./gradlew assembleDebug`（Gradle 8.9 / JDK 21 / Android SDK 35-36）
+- 仕様: docs/SPEC.md ／ アート方針: docs/ART_DIRECTION.md ／ UIカタログ: docs/UI_CATALOG.md
+
+## ライセンス
+
+MIT License
