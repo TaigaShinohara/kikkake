@@ -306,7 +306,6 @@ fun KikkakeApp() {
             item {
                 Spacer(Modifier.height(12.dp))
                 Text("きっかけ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
-                Text("きっかけを置くだけで、スマホが動く。", color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp)
             }
             if (macros.isEmpty()) {
                 item {
@@ -359,11 +358,11 @@ fun KikkakeApp() {
             item { PermissionSection(resumeTick, macros) }
             item {
                 var expanded by remember { mutableStateOf(false) }
-                val showAll = macros.size < 3 || expanded
+                val showAll = macros.isEmpty() || expanded
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Text("テンプレから始める", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Ink, modifier = Modifier.weight(1f))
-                        if (macros.size >= 3) Text(if (expanded) "閉じる" else "開く", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { expanded = !expanded }.padding(8.dp))
+                        if (macros.isNotEmpty()) Text(if (expanded) "閉じる" else "開く", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { expanded = !expanded }.padding(8.dp))
                     }
                     if (showAll) Templates.forEach { t ->
                         Box(Modifier.fillMaxWidth().pressable {
@@ -398,7 +397,7 @@ fun RunLogSection(runLog: String) {
     if (entries.isEmpty()) return
     Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("最近の実行", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Sky)
+            Text("最近の実行", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Ink)
             entries.forEach { e ->
                 val time = SimpleDateFormat("M月d日 HH:mm", Locale.JAPAN).format(Date(e.at))
                 if (e.failReason == null) {
@@ -629,7 +628,7 @@ fun MacroCard(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
             }
             if (macro.lastRunAt > 0) Text("最終実行：${SimpleDateFormat("M月d日 HH:mm", Locale.JAPAN).format(Date(macro.lastRunAt))}", color = Palette.Sky, fontSize = 13.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PrimaryButton("テスト実行") { onTest() }
+                OutlinedButton(onClick = onTest, shape = RoundedCornerShape(999.dp)) { Text("▶ テスト実行", fontSize = 15.sp, color = Palette.Pink) }
                 OutlinedButton(onClick = onEdit, shape = RoundedCornerShape(999.dp)) { Text("編集", fontSize = 15.sp) }
                 OutlinedButton(onClick = onDelete, shape = RoundedCornerShape(999.dp)) { Text("削除", fontSize = 15.sp) }
             }
@@ -662,7 +661,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
     val apps = rememberApps()
     val saveBlocked = (triggerName == TriggerType.APP_LAUNCH.name && param.isBlank()) || (actionNames.contains(ActionType.LAUNCH_APP.name) && launchParam.isBlank())
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(if (isEditing) "自動化を編集" else "自動化をつくる", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(if (isEditing) "自動化を編集" else "自動化をつくる", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Palette.InkSoft)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("① きっかけ" to Palette.Pink, "② やること" to Palette.Orange, "③ 仕上げ" to Palette.Purple).forEachIndexed { idx, (label, color) ->
                 val active = idx + 1 == step
@@ -749,8 +748,23 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                     Text("平日だけ＝月〜金／夜だけ＝21時〜朝6時", color = Palette.InkSoft, fontSize = 13.sp)
                     val t = TriggerType.valueOf(triggerName)
                     val items = ActionType.values().filter { actionNames.contains(it.name) }.map { at -> ActionItem(at, if (at == ActionType.LAUNCH_APP) launchParam else "") }
-                    Box(Modifier.fillMaxWidth().glass(20, Palette.SkyBg).padding(16.dp)) {
-                        Text("プレビュー：${Logic.summary(Macro(0, "", t, param, items, ConstraintType.valueOf(constraintName)))}", color = Palette.Sky, fontWeight = FontWeight.Bold)
+                    Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("できあがり", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Palette.InkSoft)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                                val trigLabel = "${t.icon} ${t.label}" + (if (param.isNotBlank() && t != TriggerType.APP_LAUNCH) "（$param）" else "")
+                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PinkBg)).padding(horizontal = 12.dp, vertical = 4.dp)) { Text(trigLabel, color = Palette.Pink, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                                Text("→", color = Palette.InkSoft)
+                                items.forEach { item ->
+                                    val actLabel = "${item.type.icon} " + (if (item.type == ActionType.LAUNCH_APP && item.param.isNotBlank()) "${item.type.label}（${apps.firstOrNull { it.pkg == item.param }?.label ?: item.param.substringAfterLast('.')}）" else item.type.label)
+                                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.OrangeBg)).padding(horizontal = 12.dp, vertical = 4.dp)) { Text(actLabel, color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                                }
+                                if (ConstraintType.valueOf(constraintName) != ConstraintType.NONE) {
+                                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PurpleBg)).padding(horizontal = 12.dp, vertical = 4.dp)) { Text(ConstraintType.valueOf(constraintName).label, color = Palette.Purple, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                                }
+                            }
+                            Text(Logic.summary(Macro(0, "", t, param, items, ConstraintType.valueOf(constraintName))), color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
+                        }
                     }
                     if (saveBlocked) Text("アプリの選択が終わっていないので、まだ保存できません。もどって選んでね。", color = Palette.Orange, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
