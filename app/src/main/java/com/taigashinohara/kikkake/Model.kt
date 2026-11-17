@@ -3,7 +3,7 @@ package com.taigashinohara.kikkake
 enum class TriggerType(val icon: String, val label: String, val detail: String) {
     TIME("🕐", "時刻", "決めた時刻になったら"),
     BATTERY_LOW("🔋", "電池が少ない", "電池が少なくなったら"),
-    WIFI_CONNECTED("📶", "Wi-Fi", "Wi-Fiにつながったら"),
+    WIFI_CONNECTED("📶", "Wi-Fi", "Wi-Fiにつながったら（家に着いたときなど）"),
     CHARGING_START("🔌", "充電開始", "充電が始まったら"),
     CHARGING_DONE("✅", "ケーブルを抜いたら", "充電ケーブルを抜いたら（充電中でも、抜けば動く）"),
     HEADSET("🎧", "ヘッドホン", "有線のイヤホン・ヘッドホンをつないだら"),
@@ -11,8 +11,8 @@ enum class TriggerType(val icon: String, val label: String, val detail: String) 
 }
 
 enum class ActionType(val icon: String, val label: String, val detail: String, val group: String) {
-    NOTIFICATION("💬", "通知を出す", "お知らせを表示する", "知らせる"),
-    SPEAK("🗣️", "声で知らせる", "スマホが声でお知らせする", "知らせる"),
+    NOTIFICATION("💬", "通知を出す", "好きな文でお知らせを表示する", "知らせる"),
+    SPEAK("🗣️", "声で知らせる", "好きな文を声で読み上げる", "知らせる"),
     RING("📣", "音を鳴らす", "通知音を鳴らす", "知らせる"),
     VIBRATE("📳", "バイブする", "スマホを振動させる", "知らせる"),
     MEDIA_PLAY_PAUSE("🎵", "音楽を再生／停止", "音楽の再生と停止を切り替える", "音"),
@@ -62,7 +62,11 @@ object Logic {
             else -> m.trigger.label
         }
         val a = m.actions.joinToString("＋") { item ->
-            if (item.type == ActionType.LAUNCH_APP && item.param.isNotBlank()) "${item.type.label}（${item.param.substringAfterLast('.')}）" else item.type.label
+            when {
+                item.type == ActionType.LAUNCH_APP && item.param.isNotBlank() -> "${item.type.label}（${item.param.substringAfterLast('.')}）"
+                (item.type == ActionType.NOTIFICATION || item.type == ActionType.SPEAK) && item.param.isNotBlank() -> "${item.type.label}（${item.param}）"
+                else -> item.type.label
+            }
         }
         val c = if (m.constraintType != ConstraintType.NONE) " / ${m.constraintType.label}" else ""
         return "$t → $a$c"

@@ -1,6 +1,9 @@
 package com.taigashinohara.kikkake
 
+import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -15,6 +18,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,6 +44,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -176,7 +181,7 @@ fun rememberApps(): List<AppEntry> {
                 .filter { pm.getLaunchIntentForPackage(it.packageName) != null && it.packageName != context.packageName }
                 .map { AppEntry(pm.getApplicationLabel(it).toString(), it.packageName) }
                 .sortedBy { it.label }
-                .take(80)
+                .take(200)
         } catch (e: Exception) { emptyList() }
     }
 }
@@ -215,6 +220,9 @@ fun KikkakeApp() {
     var wParam by rememberSaveable { mutableStateOf("22:00") }
     var wActions by remember { mutableStateOf(setOf(ActionType.NOTIFICATION.name)) }
     var wLaunchParam by rememberSaveable { mutableStateOf("") }
+    var wNotifParam by rememberSaveable { mutableStateOf("") }
+    var wSpeakParam by rememberSaveable { mutableStateOf("") }
+    var permGuide by remember { mutableStateOf<Macro?>(null) }
     var wConstraint by rememberSaveable { mutableStateOf(ConstraintType.NONE.name) }
     var wName by rememberSaveable { mutableStateOf("") }
     var wStep by rememberSaveable { mutableIntStateOf(1) }
@@ -226,10 +234,12 @@ fun KikkakeApp() {
             editingId = m.id; wTrigger = m.trigger.name; wParam = m.triggerParam.ifBlank { if (m.trigger == TriggerType.TIME) "22:00" else "" }
             wActions = m.actions.map { it.type.name }.toSet()
             wLaunchParam = m.actions.firstOrNull { it.type == ActionType.LAUNCH_APP }?.param ?: ""
+            wNotifParam = m.actions.firstOrNull { it.type == ActionType.NOTIFICATION }?.param ?: ""
+            wSpeakParam = m.actions.firstOrNull { it.type == ActionType.SPEAK }?.param ?: ""
             wConstraint = m.constraintType.name; wName = m.name
         } else {
             editingId = -1L; wTrigger = TriggerType.TIME.name; wParam = "22:00"
-            wActions = setOf(ActionType.NOTIFICATION.name); wLaunchParam = ""; wConstraint = ConstraintType.NONE.name; wName = ""
+            wActions = setOf(ActionType.NOTIFICATION.name); wLaunchParam = ""; wNotifParam = ""; wSpeakParam = ""; wConstraint = ConstraintType.NONE.name; wName = ""
         }
         wStep = 1; screen = "wizard"
     }
@@ -237,6 +247,7 @@ fun KikkakeApp() {
     fun addMacro(m: Macro, message: String) {
         saveMacros(macros + m)
         Engine.scheduleTimeAlarm(context, m)
+        if (missingPermKeys(context, listOf(m)).isNotEmpty()) permGuide = m
         highlightId = m.id
         scope.launch {
             val idx = macros.indexOfFirst { it.id == m.id }
@@ -271,13 +282,14 @@ fun KikkakeApp() {
             onParam = { wParam = it },
             onToggleAction = { n -> wActions = if (wActions.contains(n)) { if (wActions.size > 1) wActions - n else wActions } else wActions + n },
             onLaunchParam = { wLaunchParam = it },
+            notifParam = wNotifParam, speakParam = wSpeakParam, onNotifParam = { wNotifParam = it }, onSpeakParam = { wSpeakParam = it },
             onOpenPicker = { pickerTarget = it },
             onConstraint = { wConstraint = it }, onName = { wName = it },
             onNext = { if (wStep < 3) wStep++ },
             onBack = { if (wStep > 1) wStep-- else screen = "home" },
             onSave = {
                 val t = TriggerType.valueOf(wTrigger)
-                val items = ActionType.values().filter { wActions.contains(it.name) }.map { at -> ActionItem(at, if (at == ActionType.LAUNCH_APP) wLaunchParam else "") }
+                val items = ActionType.values().filter { wActions.contains(it.name) }.map { at -> ActionItem(at, when (at) { ActionType.LAUNCH_APP -> wLaunchParam; ActionType.NOTIFICATION -> wNotifParam; ActionType.SPEAK -> wSpeakParam; else -> "" }) }
                 val nm = wName.ifBlank { Logic.autoName(t, items) }
                 if (editingId > 0) {
                     val old = macros.find { it.id == editingId }
@@ -285,6 +297,7 @@ fun KikkakeApp() {
                     if (old != null) Engine.cancelTimeAlarm(context, old)
                     saveMacros(macros.map { if (it.id == editingId) updated else it })
                     Engine.scheduleTimeAlarm(context, updated)
+                    if (missingPermKeys(context, listOf(updated)).isNotEmpty()) permGuide = updated
                     Toast.makeText(context, "直したよ", Toast.LENGTH_SHORT).show()
                 } else {
                     val m = Macro(id = System.currentTimeMillis(), name = nm, trigger = t, triggerParam = wParam, actions = items, constraintType = ConstraintType.valueOf(wConstraint), enabled = true)
@@ -295,6 +308,14 @@ fun KikkakeApp() {
         )
         return
     }
+
+    if (screen == "help") {
+        BackHandler { screen = "home" }
+        HelpScreen(onBack = { screen = "home" })
+        return
+    }
+
+    permGuide?.let { g -> PermGuideDialog(macro = g, tick = resumeTick, onClose = { permGuide = null }) }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -308,7 +329,11 @@ fun KikkakeApp() {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(pad).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
                 Spacer(Modifier.height(12.dp))
-                Text("きっかけ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("きっかけ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                    Spacer(Modifier.weight(1f))
+                    Text("使い方", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { screen = "help" }.padding(8.dp))
+                }
             }
             if (macros.isEmpty()) {
                 item {
@@ -338,7 +363,7 @@ fun KikkakeApp() {
                                 Engine.ExecResult.BLOCKED_BY_PERMISSION -> "許可が足りない動作があったよ。下の「権限チェック」を見てね"
                                 else -> "今は動かせる動作がなかったよ"
                             }
-                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            snackbarHost.showSnackbar(msg)
                             reload()
                         }
                     },
@@ -379,6 +404,7 @@ fun KikkakeApp() {
                             Column {
                                 Text(t.title, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                 Text(Logic.summary(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType)), color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp)
+                                if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
                                 Text("タップで追加", color = Palette.Sky, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
                         }
@@ -529,7 +555,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
             }
             else -> {
                 Text(if (trialPlaced) "置けたよ。最初の自動化、完成" else "準備できたよ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Pink, lineHeight = 36.sp)
-                Text(if (trialPlaced) "「始める」を押すとホームが開いて、「${trialTemplate.macroName}」が待ってる。あとはスマホにまかせよう。" else "最初の自動化が待ってる。あとはスマホにまかせよう。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
+                Text(if (trialPlaced) "「始める」を押すとホームが開いて、「${trialTemplate.macroName}」が待ってる。あとはスマホにまかせよう。" else "ホームの「テンプレから始める」から、いつでも気軽に試せるよ。気が向いたら1つ置いてみてね。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
                 // 試しの自動化に必要な許可が足りなければ、その場で案内する（UX2-4）
                 if (trialPlaced) {
                     val t = trialTemplate
@@ -544,14 +570,14 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text("あと1つだけ", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Sky)
                                 Text("置いた自動化を動かすには、この許可が要ります。今ここで済ませると、最初の実行が失敗しません。", fontSize = 15.sp, color = Palette.Ink, lineHeight = 24.sp)
-                                if (dndMissing) PermRow("マナーモードの許可", "着信音の変更に必要") {
+                                if (dndMissing) PermRow("マナーモードの許可", "着信音の変更に必要", "開いた一覧で『きっかけ』を選んでオンにしてね") {
                                     context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
                                 }
-                                if (writeMissing) PermRow("明るさ変更の許可", "画面の明るさ変更に必要") {
+                                if (writeMissing) PermRow("明るさ変更の許可", "画面の明るさ変更に必要", "開いた画面でスイッチをオンにしてね") {
                                     val i = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply { data = Uri.parse("package:" + context.packageName) }
                                     context.startActivity(i)
                                 }
-                                if (notifMissing) PermRow("通知", "「通知を出す」に必要") {
+                                if (notifMissing) PermRow("通知", "「通知を出す」に必要", "開いた画面で「通知」をオンにしてね") {
                                     val i = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply { putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName) }
                                     context.startActivity(i)
                                 }
@@ -588,55 +614,110 @@ fun StepPage(kicker: String, title: String, desc: String, num: String, color: Co
     Box(Modifier.size(110.dp).glass(28, bg), contentAlignment = Alignment.Center) { Text(num, fontSize = 52.sp, color = color, fontWeight = FontWeight.Bold) }
 }
 
-// 必要な許可だけを、一覧の下に出す（UX-4）
 @Composable
-fun PermissionSection(tick: Int, macros: List<Macro>) {
-    val context = LocalContext.current
-    val needNotif = macros.any { m -> m.actions.any { it.type == ActionType.NOTIFICATION } }
-    val needDnd = macros.any { m -> m.actions.any { it.type == ActionType.SILENT || it.type == ActionType.SILENT_OFF || it.type == ActionType.DND_ON || it.type == ActionType.DND_OFF } }
-    val needWrite = macros.any { m -> m.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP } }
-    val needExact = macros.any { it.trigger == TriggerType.TIME }
-    val needUsage = macros.any { it.trigger == TriggerType.APP_LAUNCH }
-    val notifOk = remember(tick) { !needNotif || Engine.hasNotificationPermission(context) }
-    val dndOk = remember(tick) { !needDnd || Engine.hasDndAccess(context) }
-    val writeOk = remember(tick) { !needWrite || Engine.canWriteSettings(context) }
-    val usageOk = remember(tick) { !needUsage || Engine.hasUsageAccess(context) }
-    val exactOk = remember(tick) { !needExact || Engine.canExactAlarm(context) }
-    if (notifOk && dndOk && writeOk && usageOk && exactOk) return
-    Box(Modifier.fillMaxWidth().glass(20, Palette.SkyBg).padding(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("権限チェック", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Sky)
-            Text("あなたの自動化に必要な許可だけを表示しています。足りない許可があると、その動作は動きません。", fontSize = 15.sp, color = Palette.Ink, lineHeight = 24.sp)
-            if (!notifOk) PermRow("通知", "「通知を出す」に必要") {
-                val i = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply { putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName) }
-                context.startActivity(i)
-            }
-            if (!dndOk) PermRow("マナーモードの許可", "着信音の変更に必要") {
-                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
-            }
-            if (!writeOk) PermRow("明るさ変更の許可", "画面の明るさ変更に必要") {
-                val i = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply { data = Uri.parse("package:" + context.packageName) }
-                context.startActivity(i)
-            }
-            if (!exactOk) PermRow("正確なアラームの許可", "時刻きっかけを正確に動かすために必要") {
-                if (Build.VERSION.SDK_INT >= 31) {
-                    val i = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply { data = Uri.parse("package:" + context.packageName) }
-                    context.startActivity(i)
-                }
-            }
-            if (!usageOk) PermRow("使用状況へのアクセス", "「アプリを開いたら」きっかけに必要") {
-                context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+fun HelpScreen(onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("← もどる", color = Palette.Sky, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onBack() }.padding(8.dp))
+        }
+        Text("使い方", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+        Text("自動化は3ステップで作れます。ホームの「＋ つくる」から始められます。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
+        StepPage("ステップ 1 / 3", "きっかけを選ぶ", "「22時になったら」「電池が減ったら」みたいな、始まりの合図。", "①", Palette.Pink, Palette.PinkBg)
+        StepPage("ステップ 2 / 3", "やることを選ぶ", "静かにする、通知する…。組み合わせもOK。", "②", Palette.Orange, Palette.OrangeBg)
+        StepPage("ステップ 3 / 3", "保存するだけ", "あとはスマホがやってくれる。", "③", Palette.Purple, Palette.PurpleBg)
+        Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("困ったときは", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Ink)
+                Text("・動かない時は、ホーム下の「権限チェック」を見てね。足りない許可があると動きません。", fontSize = 15.sp, lineHeight = 24.sp)
+                Text("・電池・Wi-Fi・アプリ起動のきっかけは、約15分ごとにチェックするので少し遅れて動きます。", fontSize = 15.sp, lineHeight = 24.sp)
+                Text("・作った自動化は「▶ テスト実行」ですぐに試せます。結果は「最近の実行」にも残ります。", fontSize = 15.sp, lineHeight = 24.sp)
             }
         }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
 @Composable
-fun PermRow(title: String, desc: String, onClick: () -> Unit) {
+fun PermissionSection(tick: Int, macros: List<Macro>) {
+    val context = LocalContext.current
+    val keys = remember(tick, macros) { missingPermKeys(context, macros) }
+    if (keys.isEmpty()) return
+    Box(Modifier.fillMaxWidth().glass(20, Palette.SkyBg).padding(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("権限チェック", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Sky)
+            Text("あなたの自動化に必要な許可だけを表示しています。足りない許可があると、その動作は動きません。", fontSize = 15.sp, color = Palette.Ink, lineHeight = 24.sp)
+            MissingPermRows(macros, tick)
+        }
+    }
+}
+
+// 足りない許可のキー一覧（保存直後の案内と共通で使う）
+fun missingPermKeys(context: Context, macros: List<Macro>): Set<String> {
+    val keys = mutableSetOf<String>()
+    if (macros.any { m -> m.actions.any { it.type == ActionType.NOTIFICATION } } && !Engine.hasNotificationPermission(context)) keys += "notif"
+    if (macros.any { m -> m.actions.any { it.type == ActionType.SILENT || it.type == ActionType.SILENT_OFF || it.type == ActionType.DND_ON || it.type == ActionType.DND_OFF } } && !Engine.hasDndAccess(context)) keys += "dnd"
+    if (macros.any { m -> m.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP } } && !Engine.canWriteSettings(context)) keys += "write"
+    if (macros.any { it.trigger == TriggerType.TIME } && !Engine.canExactAlarm(context)) keys += "exact"
+    if (macros.any { it.trigger == TriggerType.APP_LAUNCH } && !Engine.hasUsageAccess(context)) keys += "usage"
+    return keys
+}
+
+// 足りない許可だけを行で出す（行き先で何をするかの一言つき、B-3）
+@Composable
+fun MissingPermRows(macros: List<Macro>, tick: Int) {
+    val context = LocalContext.current
+    val keys = remember(tick, macros) { missingPermKeys(context, macros) }
+    if ("notif" in keys) PermRow("通知", "「通知を出す」に必要", "開いた画面で「通知」をオンにしてね") {
+        val i = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply { putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName) }
+        context.startActivity(i)
+    }
+    if ("dnd" in keys) PermRow("マナーモードの許可", "着信音の変更に必要", "開いた一覧で『きっかけ』を選んでオンにしてね") {
+        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+    }
+    if ("write" in keys) PermRow("明るさ変更の許可", "画面の明るさ変更に必要", "開いた画面でスイッチをオンにしてね") {
+        val i = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply { data = Uri.parse("package:" + context.packageName) }
+        context.startActivity(i)
+    }
+    if ("exact" in keys) PermRow("正確なアラームの許可", "時刻きっかけを正確に動かすために必要", "開いた画面で許可してね") {
+        if (Build.VERSION.SDK_INT >= 31) {
+            val i = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply { data = Uri.parse("package:" + context.packageName) }
+            context.startActivity(i)
+        }
+    }
+    if ("usage" in keys) PermRow("使用状況へのアクセス", "「アプリを開いたら」きっかけに必要", "開いた一覧で『きっかけ』を選んで許可してね") {
+        context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+    }
+}
+
+// 保存・追加の直後に出す許可案内（B-2）。そろったら完了を伝える
+@Composable
+fun PermGuideDialog(macro: Macro, tick: Int, onClose: () -> Unit) {
+    val context = LocalContext.current
+    val keys = remember(tick, macro) { missingPermKeys(context, listOf(macro)) }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("あと1つだけ") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (keys.isEmpty()) {
+                    Text("全部そろったよ。これで「${macro.name}」が動きます。", fontSize = 15.sp, lineHeight = 24.sp)
+                } else {
+                    Text("「${macro.name}」を動かすには、この許可が要ります。今ここで済ませると、最初の実行が失敗しません。", fontSize = 15.sp, lineHeight = 24.sp)
+                    MissingPermRows(listOf(macro), tick)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text(if (keys.isEmpty()) "閉じる" else "あとで") } }
+    )
+}
+
+@Composable
+fun PermRow(title: String, desc: String, howto: String = "", onClick: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.weight(1f)) {
             Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             Text(desc, color = Palette.InkSoft, fontSize = 13.sp)
+            if (howto.isNotBlank()) Text(howto, color = Palette.Sky, fontSize = 13.sp)
         }
         Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = Palette.Sky), shape = RoundedCornerShape(999.dp)) { Text("許可する", fontSize = 13.sp) }
     }
@@ -654,6 +735,7 @@ fun MacroCard(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(macro.name, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                Text(if (macro.enabled) "オン" else "オフ", color = if (macro.enabled) Palette.Pink else Palette.InkSoft, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 Switch(checked = macro.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Pink, uncheckedTrackColor = Palette.GlassCard, uncheckedBorderColor = Palette.Line))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
@@ -667,6 +749,7 @@ fun MacroCard(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PurpleBg)).padding(horizontal = 12.dp, vertical = 4.dp)) { Text(macro.constraintType.label, color = Palette.Purple, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
                 }
             }
+            if (macro.trigger == TriggerType.BATTERY_LOW || macro.trigger == TriggerType.WIFI_CONNECTED || macro.trigger == TriggerType.APP_LAUNCH) Text("約15分ごとにチェックしています（少し遅れて動くことがあります）", color = Palette.InkSoft, fontSize = 13.sp)
             if (macro.lastRunAt > 0) Text("最終実行：${SimpleDateFormat("M月d日 HH:mm", Locale.JAPAN).format(Date(macro.lastRunAt))}", color = Palette.Sky, fontSize = 13.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onTest, shape = RoundedCornerShape(999.dp)) { Text("▶ テスト実行", fontSize = 15.sp, color = Palette.Pink) }
@@ -679,26 +762,43 @@ fun MacroCard(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
 
 @Composable
 fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit, onBack: () -> Unit) {
+    val context = LocalContext.current
     val apps = rememberApps()
+    var query by remember { mutableStateOf("") }
+    val shown = if (query.isBlank()) apps else apps.filter { it.label.contains(query, ignoreCase = true) }
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("← もどる", color = Palette.Sky, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onBack() }.padding(8.dp))
         }
         Text(title, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("アプリをさがす") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line))
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(apps, key = { it.pkg }) { app ->
+            items(shown, key = { it.pkg }) { app ->
                 val sel = selected == app.pkg
+                val iconBmp = remember(app.pkg) {
+                    try {
+                        val d = context.packageManager.getApplicationIcon(app.pkg)
+                        val bmp = Bitmap.createBitmap(72, 72, Bitmap.Config.ARGB_8888)
+                        val canvas = Canvas(bmp)
+                        d.setBounds(0, 0, 72, 72); d.draw(canvas)
+                        bmp.asImageBitmap()
+                    } catch (e: Exception) { null }
+                }
                 Box(Modifier.fillMaxWidth().pressable { onSelect(app.pkg) }.glass(16, if (sel) Palette.PinkBg else Palette.GlassCard).padding(16.dp)) {
-                    Text(app.label, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal, color = if (sel) Palette.Pink else Palette.Ink, fontSize = 15.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (iconBmp != null) Image(iconBmp, contentDescription = null, modifier = Modifier.size(32.dp))
+                        Text(app.label, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal, color = if (sel) Palette.Pink else Palette.Ink, fontSize = 15.sp)
+                    }
                 }
             }
         }
         if (apps.isEmpty()) Text("アプリ一覧が取得できませんでした", color = Palette.InkSoft, fontSize = 13.sp)
+        else if (shown.isEmpty()) Text("「$query」に合うアプリが見つかりませんでした", color = Palette.InkSoft, fontSize = 13.sp)
     }
 }
 
 @Composable
-fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
+fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, notifParam: String, speakParam: String, onNotifParam: (String) -> Unit, onSpeakParam: (String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
     val apps = rememberApps()
     val saveBlocked = (triggerName == TriggerType.APP_LAUNCH.name && param.isBlank()) || (actionNames.contains(ActionType.LAUNCH_APP.name) && launchParam.isBlank())
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -729,8 +829,8 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (curH == h) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam("%02d:%02d".format(h, curM)) }.padding(horizontal = 12.dp, vertical = 8.dp)) { Text("${h}時", color = if (curH == h) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
                             }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(0, 15, 30, 45).forEach { m ->
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            (0..55 step 5).forEach { m ->
                                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (curM == m) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam("%02d:%02d".format(curH, m)) }.padding(horizontal = 12.dp, vertical = 8.dp)) { Text("${m}分", color = if (curM == m) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
                             }
                         }
@@ -768,6 +868,12 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                                 }
                             }
                         }
+                    }
+                    if (actionNames.contains(ActionType.NOTIFICATION.name)) {
+                        OutlinedTextField(value = notifParam, onValueChange = onNotifParam, label = { Text("通知の文（空なら「実行しました」）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line))
+                    }
+                    if (actionNames.contains(ActionType.SPEAK.name)) {
+                        OutlinedTextField(value = speakParam, onValueChange = onSpeakParam, label = { Text("読み上げる文（空なら「実行しました」）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line))
                     }
                     if (actionNames.contains(ActionType.LAUNCH_APP.name)) {
                         val selLabel = apps.firstOrNull { it.pkg == launchParam }?.label

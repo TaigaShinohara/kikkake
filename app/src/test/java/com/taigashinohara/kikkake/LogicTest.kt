@@ -36,6 +36,12 @@ class LogicTest {
         val s = Logic.summary(m)
         assertTrue(s.contains("22:00")); assertTrue(s.contains("マナーモード")); assertTrue(s.contains("明るさを下げる")); assertTrue(s.contains("平日だけ"))
     }
+    @Test fun summary_includesMessageParam() {
+        val m = Macro(1, "test", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.NOTIFICATION, "薬を飲む")))
+        assertTrue(Logic.summary(m).contains("薬を飲む"))
+        val m2 = Macro(2, "test", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.SPEAK, "おはよう")))
+        assertTrue(Logic.summary(m2).contains("おはよう"))
+    }
     @Test fun batteryCrossed_onlyOnCrossing() {
         assertTrue(Logic.batteryCrossed(21, 20, 20))
         assertTrue(Logic.batteryCrossed(50, 10, 20))

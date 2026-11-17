@@ -84,7 +84,11 @@ object Engine {
     private fun executeInternal(context: Context, macro: Macro, ignoreConstraint: Boolean): ExecResult {
         val cal = Calendar.getInstance()
         if (!ignoreConstraint && !Logic.constraintOk(macro.constraintType, cal.get(Calendar.DAY_OF_WEEK), cal.get(Calendar.HOUR_OF_DAY))) {
-            recordRun(context, macro, false, "条件に合わなかった")
+            recordRun(context, macro, false, when (macro.constraintType) {
+                ConstraintType.WEEKDAY -> "平日だけの条件に合わなかった"
+                ConstraintType.NIGHT -> "夜だけの条件に合わなかった"
+                else -> "条件に合わなかった"
+            })
             return ExecResult.BLOCKED_BY_CONSTRAINT
         }
         var anyOk = false
@@ -97,7 +101,7 @@ object Engine {
                         val notif = NotificationCompat.Builder(context, CHANNEL_ID)
                             .setSmallIcon(android.R.drawable.ic_dialog_info)
                             .setContentTitle(macro.name)
-                            .setContentText("「${macro.name}」を実行しました")
+                            .setContentText(item.param.ifBlank { "「${macro.name}」を実行しました" })
                             .setAutoCancel(true).build()
                         try { NotificationManagerCompat.from(context).notify(macro.id.toInt(), notif); anyOk = true } catch (e: SecurityException) { blocked = true }
                     }
@@ -144,7 +148,7 @@ object Engine {
                 }
                 ActionType.SPEAK -> {
                     // 声が実際に出た時だけ成功にする（UX2-1）。呼び出し側はバックグラウンドスレッド前提
-                    if (speakAloud(context, "「${macro.name}」を実行しました")) anyOk = true else blocked = true
+                    if (speakAloud(context, item.param.ifBlank { "「${macro.name}」を実行しました" })) anyOk = true else blocked = true
                 }
                 ActionType.RING -> {
                     try {
