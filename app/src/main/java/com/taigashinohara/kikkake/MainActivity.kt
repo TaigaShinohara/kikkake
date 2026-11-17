@@ -6,6 +6,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
+import android.view.View
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -39,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -410,9 +413,15 @@ fun RunLogSection(runLog: String) {
     }
 }
 
+fun hapticFeedback(view: View, strong: Boolean) {
+    val c = if (strong && Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY
+    view.performHapticFeedback(c)
+}
+
 @Composable
 fun OnboardingScreen(onFinish: () -> Unit) {
     val context = LocalContext.current
+    val view = LocalView.current
     var page by rememberSaveable { mutableIntStateOf(0) }
     var trouble by rememberSaveable { mutableStateOf("") }
     var advancing by remember { mutableStateOf(false) }
@@ -428,8 +437,16 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     }
 
     LaunchedEffect(advancing) {
-        if (advancing) { delay(400); page = 2; advancing = false }
+        if (advancing) { delay(950); page = 2; advancing = false }
     }
+
+    // 完了の返し（大）：試しを置いて最後のページに着いたら、成功の触覚を1回だけ返す
+    LaunchedEffect(page) {
+        if (page == 7 && trialPlaced) hapticFeedback(view, strong = true)
+    }
+
+    // 戻る操作でも前のページへ（離れる操作に称賛・触覚は付けない）
+    BackHandler(enabled = page > 0) { page-- }
 
     val trialTemplate = when (trouble) {
         "battery" -> Templates[2]
@@ -437,9 +454,15 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            (0..7).forEach { i ->
-                Box(Modifier.weight(1f).height(5.dp).clip(RoundedCornerShape(999.dp)).background(if (i <= page) solidBrush(Palette.Pink) else tintBrush(Palette.Line)))
+        // 進捗は窓ドット：最大5つ、現在を中心に窓が動き、総ページ数を数えさせない
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                val totalPages = 8
+                val winStart = (page - 2).coerceIn(0, totalPages - 5)
+                (winStart until winStart + 5).forEach { i ->
+                    val dotSize = when { i == page -> 10.dp; i == winStart || i == winStart + 4 -> 5.dp; else -> 8.dp }
+                    Box(Modifier.size(dotSize).clip(RoundedCornerShape(999.dp)).background(if (i <= page) Palette.Pink else Palette.Line))
+                }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -452,19 +475,32 @@ fun OnboardingScreen(onFinish: () -> Unit) {
             1 -> {
                 Text("どんなことで\n困ってる？", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, lineHeight = 36.sp)
                 listOf("night" to "夜に音が鳴って困る", "battery" to "電池の減りが気になる", "unknown" to "まだわからない").forEach { (key, label) ->
-                    Box(Modifier.fillMaxWidth().pressable { trouble = key; advancing = true }.glass(20, if (trouble == key) Palette.PinkBg else Palette.GlassCard).padding(20.dp)) {
+                    Box(Modifier.fillMaxWidth().pressable { if (!advancing) { trouble = key; advancing = true; hapticFeedback(view, strong = false) } }.glass(20, if (trouble == key) Palette.PinkBg else Palette.GlassCard).padding(20.dp)) {
                         Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (trouble == key) Palette.Pink else Palette.Ink)
                     }
                 }
+                if (advancing) {
+                    val praise = when (trouble) {
+                        "night" -> "ありがとう。夜の静けさ、大事だよね"
+                        "battery" -> "ありがとう。電池の心配、減らしていこう"
+                        else -> "ありがとう。正直がいちばん助かる"
+                    }
+                    Text(praise, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Palette.Pink, lineHeight = 24.sp)
+                }
             }
             2 -> {
+                val echo = when (trouble) {
+                    "night" -> "「夜に音が鳴って困る」——その悩み、受け取ったよ"
+                    "battery" -> "「電池の減りが気になる」——その心配、受け取ったよ"
+                    else -> "「まだわからない」でも大丈夫"
+                }
+                Text(echo, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Pink, lineHeight = 36.sp)
                 val msg = when (trouble) {
                     "night" -> "22時に自動で静かにできるよ"
                     "battery" -> "電池が減ったら、自動で節約できるよ"
                     else -> "大丈夫。テンプレから気軽に試せるよ"
                 }
-                Text(msg, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Pink, lineHeight = 36.sp)
-                Text("そんなあなたに、きっかけはぴったり。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
+                Text("そんなあなたに、きっかけはぴったり。$msg", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
                 BigEmoji("✨")
             }
             3 -> { StepPage("ステップ 1 / 3", "きっかけを選ぶ", "「22時になったら」「電池が減ったら」みたいな、始まりの合図。", "①", Palette.Pink, Palette.PinkBg) }
@@ -485,14 +521,15 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         val m = Macro(id = System.currentTimeMillis(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
                         store.save(store.load() + m); Engine.scheduleTimeAlarm(context, m)
                     }
+                    hapticFeedback(view, strong = true)
                     trialPlaced = true
                     page = 7
                 })
                 OutlinedButton(onClick = { onFinish() }, shape = RoundedCornerShape(999.dp), modifier = Modifier.fillMaxWidth()) { Text("あとで試す", fontSize = 15.sp) }
             }
             else -> {
-                Text("準備できたよ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Pink)
-                Text("最初の自動化が待ってる。あとはスマホにまかせよう。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
+                Text(if (trialPlaced) "置けたよ。最初の自動化、完成" else "準備できたよ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Pink, lineHeight = 36.sp)
+                Text(if (trialPlaced) "「始める」を押すとホームが開いて、「${trialTemplate.macroName}」が待ってる。あとはスマホにまかせよう。" else "最初の自動化が待ってる。あとはスマホにまかせよう。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
                 // 試しの自動化に必要な許可が足りなければ、その場で案内する（UX2-4）
                 if (trialPlaced) {
                     val t = trialTemplate
@@ -528,9 +565,13 @@ fun OnboardingScreen(onFinish: () -> Unit) {
         }
         Spacer(Modifier.weight(1f))
         if (page != 1 && page != 6) {
-            PrimaryButton(if (page >= 7) "始める" else "次へ", modifier = Modifier.fillMaxWidth().height(54.dp)) { if (page >= 7) onFinish() else page++ }
+            PrimaryButton(if (page >= 7) "始める" else "次へ", modifier = Modifier.fillMaxWidth().height(54.dp)) { hapticFeedback(view, strong = false); if (page >= 7) onFinish() else page++ }
         }
-        if (page == 0 || page == 2) Text("スキップ", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().clickable { onFinish() }.padding(4.dp), textAlign = TextAlign.Center)
+        Row(Modifier.fillMaxWidth()) {
+            if (page > 0) Text("← もどる", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.clickable { page-- }.padding(4.dp))
+            Spacer(Modifier.weight(1f))
+            if (page != 6 && page != 7) Text("スキップ", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.clickable { onFinish() }.padding(4.dp))
+        }
     }
 }
 
