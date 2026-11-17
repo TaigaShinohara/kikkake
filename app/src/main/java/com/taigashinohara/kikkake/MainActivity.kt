@@ -43,8 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -52,30 +54,30 @@ import java.util.Locale
 object Palette {
     var Paper = Color(0xFFFFFBF7)
     var Ink = Color(0xFF26221F)
-    var InkSoft = Color(0xFF6F6659)
+    var InkSoft = Color(0xFF554D44)
     var Pink = Color(0xFFC2185B); var PinkBg = Color(0xFFFCE7F1)
     var Orange = Color(0xFFE65100); var OrangeBg = Color(0xFFFFEDD9)
     var Purple = Color(0xFF6A1B9A); var PurpleBg = Color(0xFFF1E6F7)
     var Sky = Color(0xFF0277BD); var SkyBg = Color(0xFFE0F2FB)
     var CardWhite = Color(0xFFFFFFFF)
     var Line = Color(0xFFEDE6DA)
-    var GlassHi = Color.White.copy(alpha = 0.65f)
+    var GlassHi = Color.White.copy(alpha = 0.75f)
     var GlassLo = Color.White.copy(alpha = 0.15f)
-    var GlassCard = Color.White.copy(alpha = 0.55f)
+    var GlassCard = Color.White.copy(alpha = 0.58f)
     var BlobA = Color(0xFFF8BBD0)
     var BlobB = Color(0xFFFFCC80)
     var BlobC = Color(0xFF81D4FA)
 
     fun applyDark(dark: Boolean) {
         if (dark) {
-            Paper = Color(0xFF1B1713); Ink = Color(0xFFF3EDE6); InkSoft = Color(0xFFB8AC9C)
+            Paper = Color(0xFF1B1713); Ink = Color(0xFFF3EDE6); InkSoft = Color(0xFFD8CFC2)
             Pink = Color(0xFFF78FB8); PinkBg = Color(0xFF3D2230)
             Orange = Color(0xFFFFAB7A); OrangeBg = Color(0xFF402A1C)
             Purple = Color(0xFFCE9BE8); PurpleBg = Color(0xFF2F2140)
             Sky = Color(0xFF7CC7F0); SkyBg = Color(0xFF1D3242)
             CardWhite = Color(0xFF292219); Line = Color(0xFF3A322A)
             GlassHi = Color.White.copy(alpha = 0.30f); GlassLo = Color.White.copy(alpha = 0.06f)
-            GlassCard = Color.White.copy(alpha = 0.10f)
+            GlassCard = Color.White.copy(alpha = 0.16f)
             BlobA = Color(0xFF6A2440); BlobB = Color(0xFF6A3A1C); BlobC = Color(0xFF14425E)
         }
     }
@@ -280,14 +282,18 @@ fun KikkakeApp() {
                         if (updated.enabled) Engine.scheduleTimeAlarm(context, updated) else Engine.cancelTimeAlarm(context, updated)
                     },
                     onTest = {
-                        val r = Engine.executeTest(context, m)
-                        val msg = when (r) {
-                            Engine.ExecResult.OK -> "動いたよ ✓"
-                            Engine.ExecResult.BLOCKED_BY_PERMISSION -> "許可が足りない動作があったよ。下の「権限チェック」を見てね"
-                            else -> "今は動かせる動作がなかったよ"
+                        // 声で知らせる等の完了待ちがあるため、テストはバックグラウンドで実行する
+                        scope.launch {
+                            val r = withContext(Dispatchers.IO) { Engine.executeTest(context, m) }
+                            val msg = when (r) {
+                                Engine.ExecResult.OK -> "動いたよ ✓"
+                                Engine.ExecResult.PARTIAL_OK -> "一部の動作は許可が足りなくて動かなかったよ。下の「権限チェック」を見てね"
+                                Engine.ExecResult.BLOCKED_BY_PERMISSION -> "許可が足りない動作があったよ。下の「権限チェック」を見てね"
+                                else -> "今は動かせる動作がなかったよ"
+                            }
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            reload()
                         }
-                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                        reload()
                     },
                     onEdit = { startWizard(m) },
                     onDelete = {
@@ -304,14 +310,14 @@ fun KikkakeApp() {
                     }
                 )
             }
-            item { PermissionSection(resumeTick, macros) }
             item { RunLogSection(stateStore.runLog) }
+            item { PermissionSection(resumeTick, macros) }
             item {
                 var expanded by remember { mutableStateOf(false) }
                 val showAll = macros.size < 3 || expanded
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Text("テンプレから始める", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Purple, modifier = Modifier.weight(1f))
+                        Text("テンプレから始める", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Ink, modifier = Modifier.weight(1f))
                         if (macros.size >= 3) Text(if (expanded) "閉じる" else "開く", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.clickable { expanded = !expanded }.padding(6.dp))
                     }
                     if (showAll) Templates.forEach { t ->
@@ -339,16 +345,22 @@ fun KikkakeApp() {
 
 @Composable
 fun RunLogSection(runLog: String) {
+    data class Entry(val name: String, val at: Long, val failReason: String?)
     val entries = runLog.split("\n").filter { it.isNotBlank() }.take(5).mapNotNull {
         val parts = it.split("|")
-        if (parts.size == 2) parts[0] to (parts[1].toLongOrNull() ?: 0L) else null
+        if (parts.size >= 2) Entry(parts[0], parts[1].toLongOrNull() ?: 0L, if (parts.size >= 3 && parts[2].startsWith("F:")) parts[2].removePrefix("F:") else null) else null
     }
     if (entries.isEmpty()) return
     Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("最近の実行", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Palette.Sky)
-            entries.forEach { (name, at) ->
-                Text("✓ $name（${SimpleDateFormat("M月d日 HH:mm", Locale.JAPAN).format(Date(at))}）", fontSize = 13.sp, color = Palette.Ink)
+            entries.forEach { e ->
+                val time = SimpleDateFormat("M月d日 HH:mm", Locale.JAPAN).format(Date(e.at))
+                if (e.failReason == null) {
+                    Text("✓ ${e.name}（$time）", fontSize = 13.sp, color = Palette.Ink)
+                } else {
+                    Text("⚠ ${e.name}（$time）${e.failReason}ので動かなかった", fontSize = 13.sp, color = Palette.Orange)
+                }
             }
         }
     }
@@ -360,7 +372,16 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     var page by rememberSaveable { mutableIntStateOf(0) }
     var trouble by rememberSaveable { mutableStateOf("") }
     var advancing by remember { mutableStateOf(false) }
+    var trialPlaced by remember { mutableStateOf(false) }
+    var permTick by remember { mutableIntStateOf(0) }
     val store = remember { MacroStore(context) }
+
+    val lifecycleOwner2 = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner2) {
+        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) permTick++ }
+        lifecycleOwner2.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner2.lifecycle.removeObserver(obs) }
+    }
 
     LaunchedEffect(advancing) {
         if (advancing) { delay(400); page = 2; advancing = false }
@@ -413,13 +434,14 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         Text(Logic.summary(Macro(0, trialTemplate.macroName, trialTemplate.trigger, trialTemplate.param, trialTemplate.actions, trialTemplate.constraintType)), color = Palette.InkSoft, fontSize = 13.sp)
                     }
                 }
-                Text("※ この自動化には、端末の許可が要る動作が含まれます。ホームに案内が出るので、あとで許可すればOKです。", color = Palette.InkSoft, fontSize = 12.sp)
+                Text("※ この自動化には、端末の許可が要る動作が含まれます。置いたあとの画面で案内します。", color = Palette.InkSoft, fontSize = 12.sp)
                 Button(onClick = {
                     val t = trialTemplate
                     if (store.load().none { it.name == t.macroName }) {
                         val m = Macro(id = System.currentTimeMillis(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
                         store.save(store.load() + m); Engine.scheduleTimeAlarm(context, m)
                     }
+                    trialPlaced = true
                     page = 7
                 }, colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink), shape = RoundedCornerShape(999.dp), modifier = Modifier.fillMaxWidth()) { Text("これを置く", fontWeight = FontWeight.Bold) }
                 OutlinedButton(onClick = { onFinish() }, shape = RoundedCornerShape(999.dp), modifier = Modifier.fillMaxWidth()) { Text("あとで試す") }
@@ -427,6 +449,36 @@ fun OnboardingScreen(onFinish: () -> Unit) {
             else -> {
                 Text("準備できたよ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Pink)
                 Text("最初の自動化が待ってる。あとはスマホにまかせよう。", fontSize = 16.sp, color = Palette.InkSoft)
+                // 試しの自動化に必要な許可が足りなければ、その場で案内する（UX2-4）
+                if (trialPlaced) {
+                    val t = trialTemplate
+                    val needDnd = t.actions.any { it.type == ActionType.SILENT || it.type == ActionType.DND_ON || it.type == ActionType.DND_OFF }
+                    val needWrite = t.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP }
+                    val needNotif = t.actions.any { it.type == ActionType.NOTIFICATION }
+                    val dndMissing = remember(permTick) { needDnd && !Engine.hasDndAccess(context) }
+                    val writeMissing = remember(permTick) { needWrite && !Engine.canWriteSettings(context) }
+                    val notifMissing = remember(permTick) { needNotif && !Engine.hasNotificationPermission(context) }
+                    if (dndMissing || writeMissing || notifMissing) {
+                        Box(Modifier.fillMaxWidth().glass(20, Palette.SkyBg).padding(16.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("あと1つだけ", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Palette.Sky)
+                                Text("置いた自動化を動かすには、この許可が要ります。今ここで済ませると、最初の実行が失敗しません。", fontSize = 13.sp, color = Palette.Ink)
+                                if (dndMissing) PermRow("マナーモードの許可", "着信音の変更に必要") {
+                                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                                }
+                                if (writeMissing) PermRow("明るさ変更の許可", "画面の明るさ変更に必要") {
+                                    val i = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply { data = Uri.parse("package:" + context.packageName) }
+                                    context.startActivity(i)
+                                }
+                                if (notifMissing) PermRow("通知", "「通知を出す」に必要") {
+                                    val i = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply { putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName) }
+                                    context.startActivity(i)
+                                }
+                                Text("あとからホームの「権限チェック」でもできます。", fontSize = 12.sp, color = Palette.InkSoft)
+                            }
+                        }
+                    }
+                }
                 BigEmoji("🎉")
             }
         }
@@ -458,7 +510,7 @@ fun StepPage(kicker: String, title: String, desc: String, num: String, color: Co
 fun PermissionSection(tick: Int, macros: List<Macro>) {
     val context = LocalContext.current
     val needNotif = macros.any { m -> m.actions.any { it.type == ActionType.NOTIFICATION } }
-    val needDnd = macros.any { m -> m.actions.any { it.type == ActionType.SILENT || it.type == ActionType.SILENT_OFF || it.type == ActionType.DND_ON } }
+    val needDnd = macros.any { m -> m.actions.any { it.type == ActionType.SILENT || it.type == ActionType.SILENT_OFF || it.type == ActionType.DND_ON || it.type == ActionType.DND_OFF } }
     val needWrite = macros.any { m -> m.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP } }
     val needExact = macros.any { it.trigger == TriggerType.TIME }
     val needUsage = macros.any { it.trigger == TriggerType.APP_LAUNCH }
@@ -621,12 +673,16 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                 }
                 2 -> {
                     Text("何をする？（複数えらべる）", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Orange)
-                    ActionType.values().forEach { a ->
-                        val selected = actionNames.contains(a.name)
-                        Box(Modifier.fillMaxWidth().glass(20, if (selected) Palette.OrangeBg else Palette.GlassCard).clickable { onToggleAction(a.name) }.padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) { Text("${a.icon} ${a.label}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (selected) Palette.Orange else Palette.Ink); Text(a.detail, color = Palette.InkSoft, fontSize = 13.sp) }
-                                if (selected) Text("✓", color = Palette.Orange, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    ActionGroups.forEach { g ->
+                        Text(g, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Palette.InkSoft)
+                        if (g == "音") Text("マナーモード＝着信音を消すこと。おやすみモード＝通知をぜんぶ止めること。", color = Palette.InkSoft, fontSize = 12.sp)
+                        ActionType.values().filter { it.group == g }.forEach { a ->
+                            val selected = actionNames.contains(a.name)
+                            Box(Modifier.fillMaxWidth().glass(20, if (selected) Palette.OrangeBg else Palette.GlassCard).clickable { onToggleAction(a.name) }.padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) { Text("${a.icon} ${a.label}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (selected) Palette.Orange else Palette.Ink); Text(a.detail, color = Palette.InkSoft, fontSize = 13.sp) }
+                                    if (selected) Text("✓", color = Palette.Orange, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                }
                             }
                         }
                     }

@@ -18,6 +18,18 @@ class LogicTest {
         TriggerType.values().forEach { assertTrue(it.icon.isNotBlank()) }
         ActionType.values().forEach { assertTrue(it.icon.isNotBlank()) }
     }
+    @Test fun allActionsBelongToKnownGroup() {
+        ActionType.values().forEach { assertTrue("group of ${it.name}", ActionGroups.contains(it.group)) }
+        ActionGroups.forEach { g -> assertTrue(ActionType.values().any { it.group == g }) }
+    }
+    @Test fun dndHasOffCounterpart() {
+        assertEquals("音", ActionType.DND_OFF.group)
+        assertTrue(ActionType.DND_OFF.label.contains("解除"))
+    }
+    @Test fun chargingDoneLabelMatchesBehavior() {
+        assertTrue(TriggerType.CHARGING_DONE.label.contains("ケーブル"))
+        assertTrue(TriggerType.HEADSET.detail.contains("有線"))
+    }
 
     @Test fun summary_includesParamAndConstraint() {
         val m = Macro(1, "test", TriggerType.TIME, "22:00", listOf(ActionItem(ActionType.SILENT), ActionItem(ActionType.BRIGHTNESS_DOWN)), ConstraintType.WEEKDAY)

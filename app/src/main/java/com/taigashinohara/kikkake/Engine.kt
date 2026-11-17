@@ -15,8 +15,11 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.KeyEvent
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
@@ -61,15 +64,29 @@ object Engine {
         return am.canScheduleExactAlarms()
     }
 
-    enum class ExecResult { OK, BLOCKED_BY_CONSTRAINT, BLOCKED_BY_PERMISSION, NOTHING_RAN }
+    enum class ExecResult { OK, PARTIAL_OK, BLOCKED_BY_CONSTRAINT, BLOCKED_BY_PERMISSION, NOTHING_RAN }
 
-    fun execute(context: Context, macro: Macro): Boolean = executeInternal(context, macro, ignoreConstraint = false) == ExecResult.OK
+    fun execute(context: Context, macro: Macro): Boolean {
+        val r = executeInternal(context, macro, ignoreConstraint = false)
+        return r == ExecResult.OK || r == ExecResult.PARTIAL_OK
+    }
 
     fun executeTest(context: Context, macro: Macro): ExecResult = executeInternal(context, macro, ignoreConstraint = true)
 
+    // 実行履歴：成功は「名前|時刻」、失敗は「名前|時刻|F:理由」で直近20件まで残す（UX2-6）
+    private fun recordRun(context: Context, macro: Macro, ok: Boolean, reason: String = "") {
+        val st = StateStore(context)
+        val entry = if (ok) "${macro.name}|${System.currentTimeMillis()}" else "${macro.name}|${System.currentTimeMillis()}|F:$reason"
+        val items = (listOf(entry) + st.runLog.split("\n").filter { it.isNotBlank() }).take(20)
+        st.runLog = items.joinToString("\n")
+    }
+
     private fun executeInternal(context: Context, macro: Macro, ignoreConstraint: Boolean): ExecResult {
         val cal = Calendar.getInstance()
-        if (!ignoreConstraint && !Logic.constraintOk(macro.constraintType, cal.get(Calendar.DAY_OF_WEEK), cal.get(Calendar.HOUR_OF_DAY))) return ExecResult.BLOCKED_BY_CONSTRAINT
+        if (!ignoreConstraint && !Logic.constraintOk(macro.constraintType, cal.get(Calendar.DAY_OF_WEEK), cal.get(Calendar.HOUR_OF_DAY))) {
+            recordRun(context, macro, false, "条件に合わなかった")
+            return ExecResult.BLOCKED_BY_CONSTRAINT
+        }
         var anyOk = false
         var blocked = false
         for (item in macro.actions) {
@@ -126,16 +143,8 @@ object Engine {
                     }
                 }
                 ActionType.SPEAK -> {
-                    try {
-                        var tts: TextToSpeech? = null
-                        tts = TextToSpeech(context.applicationContext) { status ->
-                            if (status == TextToSpeech.SUCCESS) {
-                                tts?.language = Locale.JAPAN
-                                tts?.speak("「${macro.name}」を実行しました", TextToSpeech.QUEUE_FLUSH, null, "kikkake-tts")
-                            }
-                        }
-                        anyOk = true
-                    } catch (e: Exception) { }
+                    // 声が実際に出た時だけ成功にする（UX2-1）。呼び出し側はバックグラウンドスレッド前提
+                    if (speakAloud(context, "「${macro.name}」を実行しました")) anyOk = true else blocked = true
                 }
                 ActionType.RING -> {
                     try {
@@ -165,6 +174,12 @@ object Engine {
                         nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_NONE); anyOk = true
                     }
                 }
+                ActionType.DND_OFF -> {
+                    if (!hasDndAccess(context)) { blocked = true } else {
+                        val nm = context.getSystemService(NotificationManager::class.java)
+                        nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL); anyOk = true
+                    }
+                }
                 ActionType.VIBRATE -> {
                     try {
                         val vib = if (Build.VERSION.SDK_INT >= 31) context.getSystemService(VibratorManager::class.java).defaultVibrator else @Suppress("DEPRECATION") context.getSystemService(Vibrator::class.java)
@@ -190,13 +205,44 @@ object Engine {
             val store = MacroStore(context)
             val list = store.load().map { if (it.id == macro.id) it.copy(lastRunAt = now) else it }
             store.save(list)
-            val st = StateStore(context)
-            val entry = "${macro.name}|$now"
-            val items = (listOf(entry) + st.runLog.split("\n").filter { it.isNotBlank() }).take(20)
-            st.runLog = items.joinToString("\n")
-            return ExecResult.OK
+            recordRun(context, macro, true)
+            // 一部だけ許可不足で止まった場合は、部分成功として呼び出し側へ伝える（UX2-7）
+            return if (blocked) ExecResult.PARTIAL_OK else ExecResult.OK
         }
+        recordRun(context, macro, false, if (blocked) "許可が足りない" else "動作できなかった")
         return if (blocked) ExecResult.BLOCKED_BY_PERMISSION else ExecResult.NOTHING_RAN
+    }
+
+    // TTSの初期化と発声の完了まで待ち、本当に声が出た時だけ true を返す（UX2-1）
+    private fun speakAloud(context: Context, text: String): Boolean {
+        var tts: TextToSpeech? = null
+        return try {
+            val initLatch = CountDownLatch(1)
+            var initOk = false
+            tts = TextToSpeech(context.applicationContext) { status ->
+                initOk = status == TextToSpeech.SUCCESS
+                initLatch.countDown()
+            }
+            if (!initLatch.await(3, TimeUnit.SECONDS) || !initOk) { tts?.shutdown(); return false }
+            val engine = tts ?: return false
+            engine.language = Locale.JAPAN
+            val doneLatch = CountDownLatch(1)
+            var speakOk = false
+            engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) { }
+                override fun onDone(utteranceId: String?) { speakOk = true; doneLatch.countDown() }
+                @Deprecated("Deprecated in Java") override fun onError(utteranceId: String?) { doneLatch.countDown() }
+                override fun onError(utteranceId: String?, errorCode: Int) { doneLatch.countDown() }
+            })
+            if (engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "kikkake-tts") != TextToSpeech.SUCCESS) { engine.shutdown(); return false }
+            val finished = doneLatch.await(6, TimeUnit.SECONDS)
+            val ok = finished && speakOk
+            engine.shutdown()
+            ok
+        } catch (e: Exception) {
+            try { tts?.shutdown() } catch (e2: Exception) { }
+            false
+        }
     }
 
     fun scheduleTimeAlarm(context: Context, macro: Macro) {

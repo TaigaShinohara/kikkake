@@ -5,28 +5,31 @@ enum class TriggerType(val icon: String, val label: String, val detail: String) 
     BATTERY_LOW("🔋", "電池が少ない", "電池が少なくなったら"),
     WIFI_CONNECTED("📶", "Wi-Fi", "Wi-Fiにつながったら"),
     CHARGING_START("🔌", "充電開始", "充電が始まったら"),
-    CHARGING_DONE("✅", "充電が終わったら", "充電ケーブルを抜いたら"),
-    HEADSET("🎧", "ヘッドホン", "イヤホン・ヘッドホンをつないだら"),
+    CHARGING_DONE("✅", "ケーブルを抜いたら", "充電ケーブルを抜いたら（充電中でも、抜けば動く）"),
+    HEADSET("🎧", "ヘッドホン", "有線のイヤホン・ヘッドホンをつないだら"),
     APP_LAUNCH("📱", "アプリを開いたら", "選んだアプリを開いたら")
 }
 
-enum class ActionType(val icon: String, val label: String, val detail: String) {
-    NOTIFICATION("💬", "通知を出す", "お知らせを表示する"),
-    SPEAK("🗣️", "声で知らせる", "スマホが声でお知らせする"),
-    RING("📣", "音を鳴らす", "通知音を鳴らす"),
-    MEDIA_PLAY_PAUSE("🎵", "音楽を再生／停止", "音楽の再生と停止を切り替える"),
-    MEDIA_NEXT("⏭️", "次の曲へ", "次の曲に進める"),
-    VOLUME_UP("🔊", "音量を上げる", "メディア音量を上げる"),
-    VOLUME_DOWN("🔉", "音量を下げる", "メディア音量を下げる"),
-    BRIGHTNESS_DOWN("🌙", "明るさを下げる", "画面を暗くする"),
-    BRIGHTNESS_UP("☀️", "明るさを戻す", "画面の明るさを元に戻す"),
-    SILENT("🔕", "マナーモード", "着信音を消す"),
-    SILENT_OFF("🔔", "マナーモードを解除", "着信音を元に戻す"),
-    DND_ON("😴", "おやすみモード", "通知をぜんぶ止める"),
-    VIBRATE("📳", "バイブする", "スマホを振動させる"),
-    LAUNCH_APP("🚀", "アプリを起動する", "選んだアプリを起動する"),
-    FLASHLIGHT("🔦", "ライト", "ライトをつけ／消す")
+enum class ActionType(val icon: String, val label: String, val detail: String, val group: String) {
+    NOTIFICATION("💬", "通知を出す", "お知らせを表示する", "知らせる"),
+    SPEAK("🗣️", "声で知らせる", "スマホが声でお知らせする", "知らせる"),
+    RING("📣", "音を鳴らす", "通知音を鳴らす", "知らせる"),
+    VIBRATE("📳", "バイブする", "スマホを振動させる", "知らせる"),
+    MEDIA_PLAY_PAUSE("🎵", "音楽を再生／停止", "音楽の再生と停止を切り替える", "音"),
+    MEDIA_NEXT("⏭️", "次の曲へ", "次の曲に進める", "音"),
+    VOLUME_UP("🔊", "音量を上げる", "メディア音量を上げる", "音"),
+    VOLUME_DOWN("🔉", "音量を下げる", "メディア音量を下げる", "音"),
+    SILENT("🔕", "マナーモード", "着信音を消す", "音"),
+    SILENT_OFF("🔔", "マナーモードを解除", "着信音を元に戻す", "音"),
+    DND_ON("😴", "おやすみモード", "通知をぜんぶ止める", "音"),
+    DND_OFF("🌅", "おやすみモードを解除", "止めた通知を元に戻す", "音"),
+    BRIGHTNESS_DOWN("🌙", "明るさを下げる", "画面を暗くする", "画面・ライト"),
+    BRIGHTNESS_UP("☀️", "明るさを戻す", "画面の明るさを元に戻す", "画面・ライト"),
+    FLASHLIGHT("🔦", "ライト", "ライトをつけ／消す", "画面・ライト"),
+    LAUNCH_APP("🚀", "アプリを起動する", "選んだアプリを起動する", "その他")
 }
+
+val ActionGroups = listOf("知らせる", "音", "画面・ライト", "その他")
 
 enum class ConstraintType(val label: String) {
     NONE("条件なし"), WEEKDAY("平日だけ"), NIGHT("夜だけ")
@@ -83,6 +86,6 @@ val Templates = listOf(
     Template("朝の準備", "朝のお知らせ", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.VOLUME_UP), ActionItem(ActionType.NOTIFICATION)), ConstraintType.WEEKDAY),
     Template("電池を節約", "電池節約", TriggerType.BATTERY_LOW, "20%", listOf(ActionItem(ActionType.BRIGHTNESS_DOWN), ActionItem(ActionType.NOTIFICATION)), ConstraintType.NONE),
     Template("充電お知らせ", "充電お知らせ", TriggerType.CHARGING_START, "", listOf(ActionItem(ActionType.NOTIFICATION)), ConstraintType.NONE),
-    Template("充電終わったら声で知らせる", "充電完了のお知らせ", TriggerType.CHARGING_DONE, "", listOf(ActionItem(ActionType.SPEAK), ActionItem(ActionType.NOTIFICATION)), ConstraintType.NONE),
-    Template("ヘッドホンで音楽スタート", "音楽スタート", TriggerType.HEADSET, "", listOf(ActionItem(ActionType.MEDIA_PLAY_PAUSE)), ConstraintType.NONE)
+    Template("ケーブルを抜いたら声で知らせる", "充電のお知らせ", TriggerType.CHARGING_DONE, "", listOf(ActionItem(ActionType.SPEAK), ActionItem(ActionType.NOTIFICATION)), ConstraintType.NONE),
+    Template("ヘッドホンで音楽", "ヘッドホンで音楽", TriggerType.HEADSET, "", listOf(ActionItem(ActionType.MEDIA_PLAY_PAUSE)), ConstraintType.NONE)
 )

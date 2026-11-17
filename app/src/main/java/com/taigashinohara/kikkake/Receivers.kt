@@ -14,15 +14,24 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
 
+// 実行はバックグラウンドスレッドで行う（声で知らせる等、完了待ちのある動作のため）
+private fun BroadcastReceiver.runAsync(context: Context, block: (Context) -> Unit) {
+    val pending = goAsync()
+    val appCtx = context.applicationContext
+    Thread {
+        try { block(appCtx) } catch (e: Exception) { } finally { pending.finish() }
+    }.start()
+}
+
 class PowerConnectedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_POWER_CONNECTED) Engine.onChargingStarted(context)
+        if (intent.action == Intent.ACTION_POWER_CONNECTED) runAsync(context) { Engine.onChargingStarted(it) }
     }
 }
 
 class PowerDisconnectedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_POWER_DISCONNECTED) Engine.onChargingDone(context)
+        if (intent.action == Intent.ACTION_POWER_DISCONNECTED) runAsync(context) { Engine.onChargingDone(it) }
     }
 }
 
@@ -30,7 +39,7 @@ class HeadsetReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_HEADSET_PLUG) {
             val state = intent.getIntExtra("state", -1)
-            if (state == 1) Engine.onHeadsetPlugged(context)
+            if (state == 1) runAsync(context) { Engine.onHeadsetPlugged(it) }
         }
     }
 }
@@ -41,8 +50,10 @@ class AlarmReceiver : BroadcastReceiver() {
         if (id <= 0) return
         val macro = MacroStore(context).load().find { it.id == id } ?: return
         if (macro.enabled) {
-            Engine.execute(context, macro)
-            Engine.scheduleTimeAlarm(context, macro)
+            runAsync(context) {
+                Engine.execute(it, macro)
+                Engine.scheduleTimeAlarm(it, macro)
+            }
         }
     }
 }
