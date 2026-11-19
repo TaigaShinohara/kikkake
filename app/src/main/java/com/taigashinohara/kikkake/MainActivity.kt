@@ -39,7 +39,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -96,7 +95,7 @@ object Palette {
             GlassCardTop = Color.White.copy(alpha = 0.19f)
             GlassCardBottom = Color.White.copy(alpha = 0.13f)
             InputFace = Color.White.copy(alpha = 0.20f)
-            BlobA = Color(0xFF6A2440); BlobB = Color(0xFF6A3A1C); BlobC = Color(0xFF14425E)
+            BlobA = Color(0xFF4E2438); BlobB = Color(0xFF4E2E1C); BlobC = Color(0xFF16303F)
         }
     }
 }
@@ -145,11 +144,13 @@ fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean 
 
 @Composable
 fun AppBackground() {
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.Paper, Palette.PinkBg, Palette.SkyBg)))) {
-        Box(Modifier.size(340.dp).offset(x = (-90).dp, y = (-70).dp).blur(70.dp).background(Palette.BlobA, RoundedCornerShape(999.dp)))
-        Box(Modifier.size(300.dp).offset(x = 240.dp, y = 600.dp).blur(80.dp).background(Palette.BlobB, RoundedCornerShape(999.dp)))
-        Box(Modifier.size(320.dp).offset(x = 120.dp, y = 450.dp).blur(80.dp).background(Palette.BlobC, RoundedCornerShape(999.dp)))
-        Box(Modifier.size(280.dp).offset(x = (-80).dp, y = 680.dp).blur(70.dp).background(Palette.BlobA, RoundedCornerShape(999.dp)))
+    // 光は放射グラデーション（中心→透明）で描く。blur はレイヤーの端で切れて硬い継ぎ目になるため使わない（v1.5.2）
+    val base = Brush.verticalGradient(listOf(Palette.Paper, androidx.compose.ui.graphics.lerp(Palette.Paper, Palette.PinkBg, 0.38f), androidx.compose.ui.graphics.lerp(Palette.Paper, Palette.SkyBg, 0.32f)))
+    Box(Modifier.fillMaxSize().background(base)) {
+        Box(Modifier.size(430.dp).offset(x = (-110).dp, y = (-90).dp).background(Brush.radialGradient(listOf(Palette.BlobA, Color.Transparent))))
+        Box(Modifier.size(380.dp).offset(x = 230.dp, y = 590.dp).background(Brush.radialGradient(listOf(Palette.BlobB, Color.Transparent))))
+        Box(Modifier.size(400.dp).offset(x = 110.dp, y = 430.dp).background(Brush.radialGradient(listOf(Palette.BlobC, Color.Transparent))))
+        Box(Modifier.size(360.dp).offset(x = (-90).dp, y = 670.dp).background(Brush.radialGradient(listOf(Palette.BlobA, Color.Transparent))))
     }
 }
 
@@ -326,7 +327,7 @@ fun KikkakeApp() {
             }
         }
     ) { pad ->
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(pad).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 96.dp), modifier = Modifier.fillMaxSize().padding(pad).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
                 Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -402,7 +403,7 @@ fun KikkakeApp() {
                             }
                         }.glass(20, Palette.GlassCard).padding(16.dp)) {
                             Column {
-                                Text(t.title, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                Text(t.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                 Text(Logic.summary(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType)), color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp)
                                 if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
                                 Text("タップで追加", color = Palette.Sky, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -536,7 +537,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                 Text("試しに1つ、\n置いてみよう", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, lineHeight = 36.sp)
                 Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(20.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(trialTemplate.title, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text(trialTemplate.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         Text(Logic.summary(Macro(0, trialTemplate.macroName, trialTemplate.trigger, trialTemplate.param, trialTemplate.actions, trialTemplate.constraintType)), color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp)
                     }
                 }
@@ -551,7 +552,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                     trialPlaced = true
                     page = 7
                 })
-                OutlinedButton(onClick = { onFinish() }, shape = RoundedCornerShape(999.dp), modifier = Modifier.fillMaxWidth()) { Text("あとで試す", fontSize = 15.sp) }
+                OutlinedButton(onClick = { onFinish() }, shape = RoundedCornerShape(999.dp), modifier = Modifier.fillMaxWidth()) { Text("あとで試す", fontSize = 15.sp, color = Palette.Pink) }
             }
             else -> {
                 Text(if (trialPlaced) "置けたよ。最初の自動化、完成" else "準備できたよ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Pink, lineHeight = 36.sp)
@@ -628,9 +629,9 @@ fun HelpScreen(onBack: () -> Unit) {
         Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("困ったときは", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Ink)
-                Text("・動かない時は、ホーム下の「権限チェック」を見てね。足りない許可があると動きません。", fontSize = 15.sp, lineHeight = 24.sp)
-                Text("・電池・Wi-Fi・アプリ起動のきっかけは、約15分ごとにチェックするので少し遅れて動きます。", fontSize = 15.sp, lineHeight = 24.sp)
-                Text("・作った自動化は「▶ テスト実行」ですぐに試せます。結果は「最近の実行」にも残ります。", fontSize = 15.sp, lineHeight = 24.sp)
+                Text("・動かない時は、ホーム下の「権限チェック」を見てね。足りない許可があると動きません。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
+                Text("・電池・Wi-Fi・アプリ起動のきっかけは、約15分ごとにチェックするので少し遅れて動きます。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
+                Text("・作った自動化は「▶ テスト実行」ですぐに試せます。結果は「最近の実行」にも残ります。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
             }
         }
         Spacer(Modifier.height(24.dp))
@@ -696,18 +697,18 @@ fun PermGuideDialog(macro: Macro, tick: Int, onClose: () -> Unit) {
     val keys = remember(tick, macro) { missingPermKeys(context, listOf(macro)) }
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("あと1つだけ") },
+        title = { Text("あと1つだけ", color = Palette.Ink) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (keys.isEmpty()) {
-                    Text("全部そろったよ。これで「${macro.name}」が動きます。", fontSize = 15.sp, lineHeight = 24.sp)
+                    Text("全部そろったよ。これで「${macro.name}」が動きます。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
                 } else {
-                    Text("「${macro.name}」を動かすには、この許可が要ります。今ここで済ませると、最初の実行が失敗しません。", fontSize = 15.sp, lineHeight = 24.sp)
+                    Text("「${macro.name}」を動かすには、この許可が要ります。今ここで済ませると、最初の実行が失敗しません。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
                     MissingPermRows(listOf(macro), tick)
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onClose) { Text(if (keys.isEmpty()) "閉じる" else "あとで") } }
+        confirmButton = { TextButton(onClick = onClose) { Text(if (keys.isEmpty()) "閉じる" else "あとで", color = Palette.Pink) } }
     )
 }
 
@@ -715,11 +716,11 @@ fun PermGuideDialog(macro: Macro, tick: Int, onClose: () -> Unit) {
 fun PermRow(title: String, desc: String, howto: String = "", onClick: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text(title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             Text(desc, color = Palette.InkSoft, fontSize = 13.sp)
             if (howto.isNotBlank()) Text(howto, color = Palette.Sky, fontSize = 13.sp)
         }
-        Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = Palette.Sky), shape = RoundedCornerShape(999.dp)) { Text("許可する", fontSize = 13.sp) }
+        Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = Palette.Sky), shape = RoundedCornerShape(999.dp)) { Text("許可する", fontSize = 13.sp, color = Color.White) }
     }
 }
 
@@ -734,9 +735,9 @@ fun MacroCard(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
     Box(Modifier.fillMaxWidth().glass(20, if (highlighted) Palette.PinkBg else Palette.GlassCard).padding(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(macro.name, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                Text(macro.name, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
                 Text(if (macro.enabled) "オン" else "オフ", color = if (macro.enabled) Palette.Pink else Palette.InkSoft, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Switch(checked = macro.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Pink, uncheckedTrackColor = Palette.GlassCard, uncheckedBorderColor = Palette.Line))
+                Switch(checked = macro.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Pink, checkedThumbColor = Color.White, uncheckedThumbColor = Color.White, uncheckedTrackColor = Palette.GlassCard, uncheckedBorderColor = Palette.Line))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PinkBg)).padding(horizontal = 12.dp, vertical = 4.dp)) { Text("${macro.trigger.icon} $triggerChip", color = Palette.Pink, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
@@ -752,9 +753,9 @@ fun MacroCard(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
             if (macro.trigger == TriggerType.BATTERY_LOW || macro.trigger == TriggerType.WIFI_CONNECTED || macro.trigger == TriggerType.APP_LAUNCH) Text("約15分ごとにチェックしています（少し遅れて動くことがあります）", color = Palette.InkSoft, fontSize = 13.sp)
             if (macro.lastRunAt > 0) Text("最終実行：${SimpleDateFormat("M月d日 HH:mm", Locale.JAPAN).format(Date(macro.lastRunAt))}", color = Palette.Sky, fontSize = 13.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onTest, shape = RoundedCornerShape(999.dp)) { Text("▶ テスト実行", fontSize = 15.sp, color = Palette.Pink) }
-                OutlinedButton(onClick = onEdit, shape = RoundedCornerShape(999.dp)) { Text("編集", fontSize = 15.sp) }
-                OutlinedButton(onClick = onDelete, shape = RoundedCornerShape(999.dp)) { Text("削除", fontSize = 15.sp) }
+                OutlinedButton(onClick = onTest, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("▶ テスト実行", fontSize = 15.sp, color = Palette.Pink) }
+                OutlinedButton(onClick = onEdit, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("編集", fontSize = 15.sp, color = Palette.Pink) }
+                OutlinedButton(onClick = onDelete, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("削除", fontSize = 15.sp, color = Palette.Pink) }
             }
         }
     }
@@ -770,8 +771,8 @@ fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit,
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("← もどる", color = Palette.Sky, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onBack() }.padding(8.dp))
         }
-        Text(title, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("アプリをさがす") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line))
+        Text(title, color = Palette.Ink, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("アプリをさがす") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.InkSoft, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(shown, key = { it.pkg }) { app ->
                 val sel = selected == app.pkg
@@ -823,7 +824,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                     }
                     if (triggerName == TriggerType.TIME.name) {
                         val parts = param.split(":"); val curH = parts.getOrNull(0)?.toIntOrNull() ?: 22; val curM = parts.getOrNull(1)?.toIntOrNull() ?: 0
-                        Text("時刻：${"%02d:%02d".format(curH, curM)}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text("時刻：${"%02d:%02d".format(curH, curM)}", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             (0..23).forEach { h ->
                                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (curH == h) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam("%02d:%02d".format(h, curM)) }.padding(horizontal = 12.dp, vertical = 8.dp)) { Text("${h}時", color = if (curH == h) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
@@ -870,10 +871,10 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                         }
                     }
                     if (actionNames.contains(ActionType.NOTIFICATION.name)) {
-                        OutlinedTextField(value = notifParam, onValueChange = onNotifParam, label = { Text("通知の文（空なら「実行しました」）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line))
+                        OutlinedTextField(value = notifParam, onValueChange = onNotifParam, label = { Text("通知の文（空なら「実行しました」）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.InkSoft, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
                     }
                     if (actionNames.contains(ActionType.SPEAK.name)) {
-                        OutlinedTextField(value = speakParam, onValueChange = onSpeakParam, label = { Text("読み上げる文（空なら「実行しました」）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line))
+                        OutlinedTextField(value = speakParam, onValueChange = onSpeakParam, label = { Text("読み上げる文（空なら「実行しました」）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.InkSoft, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
                     }
                     if (actionNames.contains(ActionType.LAUNCH_APP.name)) {
                         val selLabel = apps.firstOrNull { it.pkg == launchParam }?.label
@@ -884,8 +885,8 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                 }
                 else -> {
                     Text("名前と条件", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Purple)
-                    OutlinedTextField(value = name, onValueChange = onName, label = { Text("名前（空なら自動でつきます）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line))
-                    Text("条件（任意）", fontWeight = FontWeight.Bold)
+                    OutlinedTextField(value = name, onValueChange = onName, label = { Text("名前（空なら自動でつきます）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.InkSoft, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
+                    Text("条件（任意）", color = Palette.Ink, fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ConstraintType.values().forEach { c ->
                             val selected = constraintName == c.name
@@ -918,7 +919,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = onBack, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("もどる", fontSize = 15.sp) }
+            OutlinedButton(onClick = onBack, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("もどる", fontSize = 15.sp, color = Palette.Pink) }
             if (step < 3) PrimaryButton("次へ", modifier = Modifier.weight(1f)) { onNext() }
             else PrimaryButton("保存する", modifier = Modifier.weight(1f), enabled = !saveBlocked) { onSave() }
         }
