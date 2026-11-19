@@ -21,6 +21,8 @@ import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.provider.Settings
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -196,7 +198,8 @@ object Engine {
                         val id = cm.cameraIdList.firstOrNull { cm.getCameraCharacteristics(it).get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true }
                         if (id != null) {
                             val st = StateStore(context)
-                            val next = !st.torchOn
+                            // 保存した状態ではなく実際のライトの状態を読んで切り替える（手動で消された時のずれ防止）
+                            val next = !currentTorchOn(cm, id, st.torchOn)
                             cm.setTorchMode(id, next); st.torchOn = next; anyOk = true
                         }
                     } catch (e: Exception) { }
@@ -215,6 +218,27 @@ object Engine {
         }
         recordRun(context, macro, false, if (blocked) "許可が足りない" else "動作できなかった")
         return if (blocked) ExecResult.BLOCKED_BY_PERMISSION else ExecResult.NOTHING_RAN
+    }
+
+    // ライトの実際の状態を読む（コールバック登録直後に現在の状態が通知される仕組みを使う）
+    private fun currentTorchOn(cm: CameraManager, cameraId: String, fallback: Boolean): Boolean {
+        if (Build.VERSION.SDK_INT < 33) return fallback
+        var result = fallback
+        val latch = CountDownLatch(1)
+        val cb = object : CameraManager.TorchCallback() {
+            override fun onTorchModeChanged(id: String, enabled: Boolean) {
+                if (id == cameraId) { result = enabled; latch.countDown() }
+            }
+            override fun onTorchModeUnavailable(id: String) { }
+        }
+        val thread = HandlerThread("kikkake-torch")
+        return try {
+            thread.start()
+            cm.registerTorchCallback(cb, Handler(thread.looper))
+            latch.await(400, TimeUnit.MILLISECONDS)
+            try { cm.unregisterTorchCallback(cb) } catch (e: Exception) { }
+            result
+        } catch (e: Exception) { fallback } finally { thread.quitSafely() }
     }
 
     // TTSの初期化と発声の完了まで待ち、本当に声が出た時だけ true を返す（UX2-1）
