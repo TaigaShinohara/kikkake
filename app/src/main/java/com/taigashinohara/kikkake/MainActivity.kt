@@ -753,9 +753,9 @@ fun MacroCard(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
             if (macro.trigger == TriggerType.BATTERY_LOW || macro.trigger == TriggerType.WIFI_CONNECTED || macro.trigger == TriggerType.APP_LAUNCH) Text("約15分ごとにチェックしています（少し遅れて動くことがあります）", color = Palette.InkSoft, fontSize = 13.sp)
             if (macro.lastRunAt > 0) Text("最終実行：${SimpleDateFormat("M月d日 HH:mm", Locale.JAPAN).format(Date(macro.lastRunAt))}", color = Palette.Sky, fontSize = 13.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onTest, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("▶ テスト実行", fontSize = 15.sp, color = Palette.Pink) }
-                OutlinedButton(onClick = onEdit, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("編集", fontSize = 15.sp, color = Palette.Pink) }
-                OutlinedButton(onClick = onDelete, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("削除", fontSize = 15.sp, color = Palette.Pink) }
+                OutlinedButton(onClick = onTest, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1.5f)) { Text("▶ テスト実行", fontSize = 15.sp, color = Palette.Pink, maxLines = 1) }
+                OutlinedButton(onClick = onEdit, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("編集", fontSize = 15.sp, color = Palette.Pink, maxLines = 1) }
+                OutlinedButton(onClick = onDelete, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("削除", fontSize = 15.sp, color = Palette.Pink, maxLines = 1) }
             }
         }
     }
