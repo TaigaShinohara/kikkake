@@ -1,14 +1,25 @@
 package com.taigashinohara.kikkake
 
-enum class TriggerType(val icon: String, val label: String, val detail: String) {
-    TIME("🕐", "時刻", ""),
-    BATTERY_LOW("🔋", "電池が少ない", ""),
-    WIFI_CONNECTED("📶", "Wi-Fi", "家に着いたときなど"),
-    CHARGING_START("🔌", "充電開始", ""),
-    CHARGING_DONE("✅", "ケーブルを抜いたら", "充電中でも、抜けば動く"),
-    HEADSET("🎧", "ヘッドホン", "有線のみ"),
-    APP_LAUNCH("📱", "アプリを開いたら", "")
+enum class TriggerType(val icon: String, val label: String, val detail: String, val group: String) {
+    TIME("🕐", "時刻", "", "時刻"),
+    SUN_EVENT("🌅", "日の出・日の入り", "太陽に合わせて", "時刻"),
+    LOCATION("📍", "場所", "着いたら／離れたら", "場所"),
+    WIFI_CONNECTED("📶", "Wi-Fi", "家に着いたときなど", "つながり"),
+    BLUETOOTH("🔷", "Bluetooth", "機器がつながったら", "つながり"),
+    HEADSET("🎧", "ヘッドホン", "有線のみ", "つながり"),
+    CHARGING_START("🔌", "充電開始", "", "充電・電池"),
+    CHARGING_DONE("✅", "ケーブルを抜いたら", "充電中でも、抜けば動く", "充電・電池"),
+    BATTERY_LOW("🔋", "電池が少ない", "", "充電・電池"),
+    BATTERY_RISES("⚡", "電池が増えたら", "充電が進んだら", "充電・電池"),
+    APP_LAUNCH("📱", "アプリを開いたら", "", "アプリ"),
+    APP_CLOSED("📴", "アプリを閉じたら", "", "アプリ"),
+    NOTIFICATION_POSTED("✉️", "通知が来たら", "選んだアプリの通知で", "連絡"),
+    DND_STATE("🔕", "集中モード", "ON／OFFしたら", "端末の状態"),
+    POWER_SAVE("🍃", "省電力モード", "ON／OFFしたら", "端末の状態"),
+    AIRPLANE("✈️", "機内モード", "ON／OFFしたら", "端末の状態")
 }
+
+val TriggerGroups = listOf("時刻", "場所", "つながり", "充電・電池", "アプリ", "連絡", "端末の状態")
 
 enum class ActionType(val icon: String, val label: String, val detail: String, val group: String) {
     NOTIFICATION("💬", "通知を出す", "好きな文でお知らせ", "知らせる"),
@@ -57,8 +68,22 @@ object Logic {
 
     fun summary(m: Macro): String {
         val t = when {
+            m.trigger == TriggerType.SUN_EVENT -> if (m.triggerParam.startsWith("sunrise")) "日の出" else "日の入り"
+            m.trigger == TriggerType.LOCATION -> {
+                val parts = m.triggerParam.split("@")
+                val name = parts.getOrNull(2)?.ifBlank { "場所" } ?: "場所"
+                if (parts.getOrNull(0) == "leave") "${name}を離れたら" else "${name}に着いたら"
+            }
+            m.trigger == TriggerType.NOTIFICATION_POSTED && m.triggerParam.isNotBlank() -> "${m.trigger.label}（${m.triggerParam.substringBefore("|").substringAfterLast('.')}）"
             m.trigger == TriggerType.APP_LAUNCH && m.triggerParam.isNotBlank() -> "${m.trigger.label}（${m.triggerParam.substringAfterLast('.')}）"
-            m.triggerParam.isNotBlank() -> "${m.trigger.label}（${m.triggerParam}）"
+            m.trigger == TriggerType.APP_CLOSED && m.triggerParam.isNotBlank() -> "${m.trigger.label}（${m.triggerParam.substringAfterLast('.')}）"
+            m.trigger == TriggerType.TIME && m.triggerParam.isNotBlank() -> {
+                val days = timeDaysOf(m.triggerParam)
+                val base = "${m.trigger.label}（${m.triggerParam.substringBefore("@")}）"
+                if (days == null) base else "$base・${daysLabel(days)}"
+            }
+            (m.trigger == TriggerType.DND_STATE || m.trigger == TriggerType.POWER_SAVE || m.trigger == TriggerType.AIRPLANE) -> "${m.trigger.label}（${if (m.triggerParam == "off") "OFF" else "ON"}）"
+            m.triggerParam.isNotBlank() && m.trigger != TriggerType.BLUETOOTH -> "${m.trigger.label}（${m.triggerParam}）"
             else -> m.trigger.label
         }
         val a = m.actions.joinToString("＋") { item ->
@@ -70,6 +95,45 @@ object Logic {
         }
         val c = if (m.constraintType != ConstraintType.NONE) " / ${m.constraintType.label}" else ""
         return "$t → $a$c"
+    }
+
+    // 時刻パラメータ "HH:mm@23456" の曜日集合（Calendar.DAY_OF_WEEK の数字）。@なしは null（毎日）
+    fun timeDaysOf(param: String): Set<Int>? {
+        if (!param.contains("@")) return null
+        val ds = param.substringAfter("@").mapNotNull { it.digitToIntOrNull() }.filter { it in 1..7 }.toSet()
+        return if (ds.isEmpty() || ds.size == 7) null else ds
+    }
+
+    fun daysLabel(days: Set<Int>): String {
+        if (days == setOf(2, 3, 4, 5, 6)) return "平日"
+        if (days == setOf(1, 7)) return "週末"
+        val names = mapOf(1 to "日", 2 to "月", 3 to "火", 4 to "水", 5 to "木", 6 to "金", 7 to "土")
+        return days.sorted().joinToString("") { names[it] ?: "" }
+    }
+
+    fun batteryRisen(prev: Int, now: Int, threshold: Int): Boolean = prev < threshold && now >= threshold
+
+    // 日の出・日の入りの時刻（その日の0時からの分数、現地時間）。NOAA近似式。計算できない場合は -1
+    fun sunEventMinutes(lat: Double, lng: Double, dayOfYear: Int, tzOffsetMinutes: Int, sunrise: Boolean): Int {
+        val rad = Math.PI / 180.0
+        val lngHour = lng / 15.0
+        val t = dayOfYear + ((if (sunrise) 6.0 else 18.0) - lngHour) / 24.0
+        val m = 0.9856 * t - 3.289
+        var l = m + 1.916 * Math.sin(m * rad) + 0.020 * Math.sin(2 * m * rad) + 282.634
+        l = ((l % 360.0) + 360.0) % 360.0
+        var ra = Math.atan(0.91764 * Math.tan(l * rad)) / rad
+        ra = ((ra % 360.0) + 360.0) % 360.0
+        ra += Math.floor(l / 90.0) * 90.0 - Math.floor(ra / 90.0) * 90.0
+        ra /= 15.0
+        val sinDec = 0.39782 * Math.sin(l * rad)
+        val cosDec = Math.cos(Math.asin(sinDec))
+        val cosH = (Math.cos(90.833 * rad) - sinDec * Math.sin(lat * rad)) / (cosDec * Math.cos(lat * rad))
+        if (cosH > 1.0 || cosH < -1.0) return -1
+        var h = if (sunrise) 360.0 - Math.acos(cosH) / rad else Math.acos(cosH) / rad
+        h /= 15.0
+        val tt = h + ra - 0.06571 * t - 6.622
+        val ut = ((tt - lngHour) % 24.0 + 24.0) % 24.0
+        return ((Math.round(ut * 60.0).toInt() + tzOffsetMinutes) % 1440 + 1440) % 1440
     }
 
     fun constraintOk(type: ConstraintType, dayOfWeek: Int, hour: Int): Boolean = when (type) {

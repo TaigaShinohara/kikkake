@@ -247,7 +247,7 @@ fun KikkakeApp() {
 
     fun addMacro(m: Macro, message: String) {
         saveMacros(macros + m)
-        Engine.scheduleTimeAlarm(context, m)
+        Engine.scheduleTimeAlarm(context, m); Engine.scheduleSunAlarm(context, m)
         if (missingPermKeys(context, listOf(m)).isNotEmpty()) permGuide = m
         highlightId = m.id
         scope.launch {
@@ -268,7 +268,7 @@ fun KikkakeApp() {
         AppPickerScreen(
             title = if (pickerTarget == "trigger") "どのアプリを開いたら？" else "どのアプリを起動する？",
             selected = if (pickerTarget == "trigger") wParam else wLaunchParam,
-            onSelect = { pkg -> if (pickerTarget == "trigger") wParam = pkg else wLaunchParam = pkg; pickerTarget = "" },
+            onSelect = { pkg -> if (pickerTarget == "trigger") { wParam = if (wTrigger == TriggerType.NOTIFICATION_POSTED.name) { val kw = wParam.substringAfter("|", ""); if (kw.isBlank()) pkg else "$pkg|$kw" } else pkg } else wLaunchParam = pkg; pickerTarget = "" },
             onBack = { pickerTarget = "" }
         )
         return
@@ -279,7 +279,7 @@ fun KikkakeApp() {
         WizardScreen(
             step = wStep, triggerName = wTrigger, param = wParam, actionNames = wActions, launchParam = wLaunchParam,
             constraintName = wConstraint, name = wName, isEditing = editingId > 0,
-            onTrigger = { wTrigger = it; wParam = when (it) { TriggerType.TIME.name -> "22:00"; TriggerType.BATTERY_LOW.name -> "20%"; else -> "" } },
+            onTrigger = { wTrigger = it; wParam = when (it) { TriggerType.TIME.name -> "22:00"; TriggerType.BATTERY_LOW.name -> "20%"; TriggerType.BATTERY_RISES.name -> "80%"; TriggerType.SUN_EVENT.name -> "sunset"; TriggerType.LOCATION.name -> "arrive"; TriggerType.DND_STATE.name, TriggerType.POWER_SAVE.name, TriggerType.AIRPLANE.name -> "on"; else -> "" } },
             onParam = { wParam = it },
             onToggleAction = { n -> wActions = if (wActions.contains(n)) { if (wActions.size > 1) wActions - n else wActions } else wActions + n },
             onLaunchParam = { wLaunchParam = it },
@@ -297,7 +297,7 @@ fun KikkakeApp() {
                     val updated = Macro(id = editingId, name = nm, trigger = t, triggerParam = wParam, actions = items, constraintType = ConstraintType.valueOf(wConstraint), enabled = old?.enabled ?: true, lastRunAt = old?.lastRunAt ?: 0L)
                     if (old != null) Engine.cancelTimeAlarm(context, old)
                     saveMacros(macros.map { if (it.id == editingId) updated else it })
-                    Engine.scheduleTimeAlarm(context, updated)
+                    Engine.scheduleTimeAlarm(context, updated); Engine.scheduleSunAlarm(context, updated)
                     if (missingPermKeys(context, listOf(updated)).isNotEmpty()) permGuide = updated
                     Toast.makeText(context, "直したよ", Toast.LENGTH_SHORT).show()
                 } else {
@@ -355,7 +355,7 @@ fun KikkakeApp() {
                                 onToggle = {
                                     val updated = m.copy(enabled = !m.enabled)
                                     saveMacros(macros.map { if (it.id == m.id) updated else it })
-                                    if (updated.enabled) Engine.scheduleTimeAlarm(context, updated) else Engine.cancelTimeAlarm(context, updated)
+                                    if (updated.enabled) { Engine.scheduleTimeAlarm(context, updated); Engine.scheduleSunAlarm(context, updated) } else Engine.cancelTimeAlarm(context, updated)
                                 },
                                 onTest = {
                                     // 声で知らせる等の完了待ちがあるため、テストはバックグラウンドで実行する
@@ -380,7 +380,7 @@ fun KikkakeApp() {
                                         val res = snackbarHost.showSnackbar("「${removed.name}」を消したよ", actionLabel = "元に戻す", duration = SnackbarDuration.Short)
                                         if (res == SnackbarResult.ActionPerformed) {
                                             saveMacros(store.load() + removed)
-                                            Engine.scheduleTimeAlarm(context, removed)
+                                            Engine.scheduleTimeAlarm(context, removed); Engine.scheduleSunAlarm(context, removed)
                                         }
                                     }
                                 }
@@ -552,7 +552,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                     val t = trialTemplate
                     if (store.load().none { it.name == t.macroName }) {
                         val m = Macro(id = System.currentTimeMillis(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
-                        store.save(store.load() + m); Engine.scheduleTimeAlarm(context, m)
+                        store.save(store.load() + m); Engine.scheduleTimeAlarm(context, m); Engine.scheduleSunAlarm(context, m)
                     }
                     hapticFeedback(view, strong = true)
                     trialPlaced = true
@@ -704,6 +704,10 @@ fun missingPermKeys(context: Context, macros: List<Macro>): Set<String> {
     if (macros.any { m -> m.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP } } && !Engine.canWriteSettings(context)) keys += "write"
     if (macros.any { it.trigger == TriggerType.TIME } && !Engine.canExactAlarm(context)) keys += "exact"
     if (macros.any { it.trigger == TriggerType.APP_LAUNCH } && !Engine.hasUsageAccess(context)) keys += "usage"
+    if (macros.any { it.trigger == TriggerType.APP_CLOSED } && !Engine.hasUsageAccess(context)) keys += "usage"
+    if (macros.any { it.trigger == TriggerType.LOCATION || it.trigger == TriggerType.SUN_EVENT } && !Engine.hasLocationPermission(context)) keys += "location"
+    if (macros.any { it.trigger == TriggerType.BLUETOOTH } && !Engine.hasBluetoothPermission(context)) keys += "bt"
+    if (macros.any { it.trigger == TriggerType.NOTIFICATION_POSTED } && !Engine.isNotificationListenerEnabled(context)) keys += "notiflisten"
     return keys
 }
 
@@ -731,6 +735,17 @@ fun MissingPermRows(macros: List<Macro>, tick: Int) {
     }
     if ("usage" in keys) PermRow("使用状況へのアクセス", "「アプリを開いたら」きっかけに必要", "開いた一覧で『きっかけ』を選んで許可してね") {
         context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+    }
+    if ("location" in keys) PermRow("位置情報", "「場所」「日の出・日の入り」に必要", "開いた画面で『権限』→『位置情報』を「常に許可」にしてね") {
+        val i = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = Uri.parse("package:" + context.packageName) }
+        context.startActivity(i)
+    }
+    if ("bt" in keys) PermRow("Bluetooth", "「Bluetooth」きっかけに必要", "開いた画面で『権限』→『近くのデバイス』を許可してね") {
+        val i = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = Uri.parse("package:" + context.packageName) }
+        context.startActivity(i)
+    }
+    if ("notiflisten" in keys) PermRow("通知へのアクセス", "「通知が来たら」に必要", "開いた一覧で『きっかけ』をオンにしてね") {
+        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
 }
 
@@ -832,8 +847,21 @@ fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit,
 
 @Composable
 fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, notifParam: String, speakParam: String, onNotifParam: (String) -> Unit, onSpeakParam: (String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
+    val context = LocalContext.current
     val apps = rememberApps()
-    val saveBlocked = (triggerName == TriggerType.APP_LAUNCH.name && param.isBlank()) || (actionNames.contains(ActionType.LAUNCH_APP.name) && launchParam.isBlank())
+    val bondedDevices = remember(triggerName) {
+        if (triggerName == TriggerType.BLUETOOTH.name) {
+            try {
+                @Suppress("DEPRECATION") val ad = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                ad?.bondedDevices?.map { (it.name ?: "機器") to it.address } ?: emptyList()
+            } catch (e: Exception) { emptyList() }
+        } else emptyList()
+    }
+    val saveBlocked = (triggerName == TriggerType.APP_LAUNCH.name && param.isBlank()) || (actionNames.contains(ActionType.LAUNCH_APP.name) && launchParam.isBlank()) ||
+        (triggerName == TriggerType.APP_CLOSED.name && param.isBlank()) ||
+        (triggerName == TriggerType.NOTIFICATION_POSTED.name && param.substringBefore("|").isBlank()) ||
+        (triggerName == TriggerType.LOCATION.name && param.split("@").getOrNull(1).isNullOrBlank()) ||
+        (triggerName == TriggerType.SUN_EVENT.name && param.split("@").getOrNull(1).isNullOrBlank())
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("① きっかけ" to Palette.Pink, "② やること" to Palette.Orange, "③ 仕上げ" to Palette.Purple).forEachIndexed { idx, (label, color) ->
@@ -847,29 +875,86 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
             when (step) {
                 1 -> {
                     Text("いつ動かす？", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Pink)
-                    TriggerType.values().forEach { t ->
-                        val selected = triggerName == t.name
-                        Box(Modifier.fillMaxWidth().pressable { onTrigger(t.name) }.glass(20, if (selected) Palette.PinkBg else Palette.GlassCard).padding(16.dp)) {
-                            Column { Text("${t.icon} ${t.label}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (selected) Palette.Pink else Palette.Ink); if (t.detail.isNotEmpty()) Text(t.detail, color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp) }
+                    TriggerGroups.forEach { g ->
+                        Text(g, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Palette.InkSoft)
+                        TriggerType.values().filter { it.group == g }.forEach { t ->
+                            val selected = triggerName == t.name
+                            Box(Modifier.fillMaxWidth().pressable { onTrigger(t.name) }.glass(20, if (selected) Palette.PinkBg else Palette.GlassCard).padding(16.dp)) {
+                                Column { Text("${t.icon} ${t.label}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (selected) Palette.Pink else Palette.Ink); if (t.detail.isNotEmpty()) Text(t.detail, color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp) }
+                            }
                         }
                     }
                     if (triggerName == TriggerType.TIME.name) {
-                        val parts = param.split(":"); val curH = parts.getOrNull(0)?.toIntOrNull() ?: 22; val curM = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                        val timePart = param.substringBefore("@")
+                        val tparts = timePart.split(":"); val curH = tparts.getOrNull(0)?.toIntOrNull() ?: 22; val curM = tparts.getOrNull(1)?.toIntOrNull() ?: 0
+                        fun setTime(h: Int, m: Int) { val d = Logic.timeDaysOf(param); onParam("%02d:%02d".format(h, m) + if (d == null) "" else "@" + d.sorted().joinToString("")) }
                         Text("時刻：${"%02d:%02d".format(curH, curM)}", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             (0..23).forEach { h ->
-                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (curH == h) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam("%02d:%02d".format(h, curM)) }.padding(horizontal = 12.dp, vertical = 8.dp)) { Text("${h}時", color = if (curH == h) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (curH == h) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { setTime(h, curM) }.padding(horizontal = 12.dp, vertical = 8.dp)) { Text("${h}時", color = if (curH == h) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
                             }
                         }
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             (0..55 step 5).forEach { m ->
-                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (curM == m) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam("%02d:%02d".format(curH, m)) }.padding(horizontal = 12.dp, vertical = 8.dp)) { Text("${m}分", color = if (curM == m) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (curM == m) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { setTime(curH, m) }.padding(horizontal = 12.dp, vertical = 8.dp)) { Text("${m}分", color = if (curM == m) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                            }
+                        }
+                        Text("曜日（全部オンなら毎日）", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(1 to "日", 2 to "月", 3 to "火", 4 to "水", 5 to "木", 6 to "金", 7 to "土").forEach { (d, label) ->
+                                val curSet = Logic.timeDaysOf(param) ?: setOf(1, 2, 3, 4, 5, 6, 7)
+                                val on = curSet.contains(d)
+                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (on) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable {
+                                    val ns = curSet.toMutableSet(); if (ns.contains(d)) ns.remove(d) else ns.add(d)
+                                    onParam(timePart + if (ns.isEmpty() || ns.size == 7) "" else "@" + ns.sorted().joinToString(""))
+                                }.padding(horizontal = 11.dp, vertical = 8.dp)) { Text(label, color = if (on) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
                             }
                         }
                     }
+                    if (triggerName == TriggerType.SUN_EVENT.name) {
+                        val mode = param.substringBefore("@"); val llPart = param.substringAfter("@", "")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("sunrise" to "日の出", "sunset" to "日の入り").forEach { (v, label) ->
+                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (mode == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v + if (llPart.isNotBlank()) "@$llPart" else "") }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(label, color = if (mode == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                            }
+                        }
+                        Box(Modifier.fillMaxWidth().pressable {
+                            val ll = Engine.lastKnownLatLng(context)
+                            if (ll != null) onParam("$mode@${ll.first},${ll.second}") else Toast.makeText(context, "位置が取れなかった。位置情報を許可してね", Toast.LENGTH_LONG).show()
+                        }.glass(20, Palette.GlassCard).padding(16.dp)) {
+                            Text(if (llPart.isNotBlank()) "場所は設定済み（タップで更新）" else "今いる場所を使う（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
+                        }
+                        if (llPart.isBlank()) Text("場所が決まらないと、日の出・日の入りは計算できません", color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                    if (triggerName == TriggerType.LOCATION.name) {
+                        val lparts = param.split("@")
+                        val mode = lparts.getOrNull(0) ?: "arrive"; val llPart = lparts.getOrNull(1) ?: ""; val placeName = lparts.getOrNull(2) ?: ""
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("arrive" to "着いたら", "leave" to "離れたら").forEach { (v, label) ->
+                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (mode == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam("$v@$llPart@$placeName") }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(label, color = if (mode == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                            }
+                        }
+                        Box(Modifier.fillMaxWidth().pressable {
+                            val ll = Engine.lastKnownLatLng(context)
+                            if (ll != null) onParam("$mode@${ll.first},${ll.second}@$placeName") else Toast.makeText(context, "位置が取れなかった。位置情報を許可してね", Toast.LENGTH_LONG).show()
+                        }.glass(20, Palette.GlassCard).padding(16.dp)) {
+                            Text(if (llPart.isNotBlank()) "場所は設定済み（タップで更新）" else "今いる場所を使う（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
+                        }
+                        OutlinedTextField(value = placeName, onValueChange = { onParam("$mode@$llPart@$it") }, label = { Text("場所の名前（例：家）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.Pink, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
+                        if (llPart.isBlank()) Text("場所が決まらないと動きません", color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("約15分ごとにチェックするので、少し遅れて動きます（半径200m）", color = Palette.InkSoft, fontSize = 13.sp)
+                    }
                     if (triggerName == TriggerType.BATTERY_LOW.name) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("10%", "20%", "30%").forEach { v ->
+                            listOf("10%", "20%", "30%", "50%").forEach { v ->
+                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(v, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                            }
+                        }
+                        Text("約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+                    }
+                    if (triggerName == TriggerType.BATTERY_RISES.name) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("50%", "80%", "100%").forEach { v ->
                                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(v, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
                             }
                         }
@@ -878,12 +963,38 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                     if (triggerName == TriggerType.WIFI_CONNECTED.name) {
                         Text("約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
                     }
-                    if (triggerName == TriggerType.APP_LAUNCH.name) {
+                    if (triggerName == TriggerType.BLUETOOTH.name) {
+                        Text("つながったら動かす機器（選ばなければ全部）", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param.isBlank()) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam("") }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text("すべて", color = if (param.isBlank()) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                            bondedDevices.forEach { (devName, addr) ->
+                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == addr) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(addr) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(devName, color = if (param == addr) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                            }
+                        }
+                        if (bondedDevices.isEmpty()) Text("機器の名前を出すには許可が要ります。保存後の案内で許可できます（「すべて」なら今でも動きます）", color = Palette.InkSoft, fontSize = 13.sp)
+                    }
+                    if (triggerName == TriggerType.APP_LAUNCH.name || triggerName == TriggerType.APP_CLOSED.name) {
                         val selLabel = apps.firstOrNull { it.pkg == param }?.label
                         Box(Modifier.fillMaxWidth().pressable { onOpenPicker("trigger") }.glass(20, Palette.GlassCard).padding(16.dp)) {
                             Text(if (selLabel != null) "対象のアプリ：$selLabel（タップで変更）" else "アプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
                         }
                         Text("約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+                    }
+                    if (triggerName == TriggerType.NOTIFICATION_POSTED.name) {
+                        val npkg = param.substringBefore("|")
+                        val selLabel = apps.firstOrNull { it.pkg == npkg }?.label
+                        Box(Modifier.fillMaxWidth().pressable { onOpenPicker("trigger") }.glass(20, Palette.GlassCard).padding(16.dp)) {
+                            Text(if (selLabel != null) "対象のアプリ：$selLabel（タップで変更）" else "アプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
+                        }
+                        OutlinedTextField(value = param.substringAfter("|", ""), onValueChange = { onParam("$npkg|$it") }, label = { Text("キーワード（空なら全部の通知）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.Pink, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
+                        Text("メール・メッセージ・お支払いの通知も、ここで拾えます", color = Palette.InkSoft, fontSize = 13.sp)
+                    }
+                    if (triggerName == TriggerType.DND_STATE.name || triggerName == TriggerType.POWER_SAVE.name || triggerName == TriggerType.AIRPLANE.name) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("on" to "ONになったら", "off" to "OFFになったら").forEach { (v, label) ->
+                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(label, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                            }
+                        }
                     }
                 }
                 2 -> {
@@ -943,7 +1054,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                             }
                         }
                     }
-                    if (saveBlocked) Text("アプリの選択が終わっていないので、まだ保存できません。もどって選んでね。", color = Palette.Orange, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    if (saveBlocked) Text("設定が終わっていないので、まだ保存できません。もどって決めてね。", color = Palette.Orange, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

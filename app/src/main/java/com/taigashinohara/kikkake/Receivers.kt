@@ -53,8 +53,45 @@ class AlarmReceiver : BroadcastReceiver() {
             runAsync(context) {
                 Engine.execute(it, macro)
                 Engine.scheduleTimeAlarm(it, macro)
+                Engine.scheduleSunAlarm(it, macro)
             }
         }
+    }
+}
+
+class AirplaneReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == Intent.ACTION_AIRPLANE_MODE_CHANGED) runAsync(context) { Engine.checkStateEdges(it) }
+    }
+}
+
+class PowerSaveReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED) runAsync(context) { Engine.checkStateEdges(it) }
+    }
+}
+
+class BluetoothReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED) {
+            @Suppress("DEPRECATION") val device = intent.getParcelableExtra<android.bluetooth.BluetoothDevice>(android.bluetooth.BluetoothDevice.EXTRA_DEVICE)
+            val addr = try { device?.address } catch (e: Exception) { null }
+            runAsync(context) { Engine.onBluetoothConnected(it, addr) }
+        }
+    }
+}
+
+// 通知が来たら（メール・メッセージ・支払い通知もここで拾う）
+class KikkakeNotificationListener : android.service.notification.NotificationListenerService() {
+    override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification) {
+        try {
+            val extras = sbn.notification.extras
+            val title = extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString() ?: ""
+            val text = extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString() ?: ""
+            val ctx = applicationContext
+            val pkg = sbn.packageName
+            Thread { try { Engine.onNotificationPosted(ctx, pkg, title, text) } catch (e: Exception) { } }.start()
+        } catch (e: Exception) { }
     }
 }
 
@@ -83,6 +120,9 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             Engine.checkWifi(ctx, wifi)
         } catch (e: Exception) { }
         try { Engine.checkAppLaunches(ctx) } catch (e: Exception) { }
+        try { Engine.checkAppClosed(ctx) } catch (e: Exception) { }
+        try { Engine.checkStateEdges(ctx) } catch (e: Exception) { }
+        try { Engine.checkLocations(ctx) } catch (e: Exception) { }
         return Result.success()
     }
 

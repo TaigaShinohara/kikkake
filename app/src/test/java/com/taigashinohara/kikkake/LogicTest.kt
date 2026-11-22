@@ -42,6 +42,33 @@ class LogicTest {
         val m2 = Macro(2, "test", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.SPEAK, "おはよう")))
         assertTrue(Logic.summary(m2).contains("おはよう"))
     }
+    @Test fun triggerGroups() {
+        TriggerType.values().forEach { assertTrue("group of ${it.name}", TriggerGroups.contains(it.group)) }
+        TriggerGroups.forEach { g -> assertTrue(TriggerType.values().any { it.group == g }) }
+    }
+
+    @Test fun batteryRisen() {
+        assertTrue(Logic.batteryRisen(79, 80, 80))
+        assertTrue(Logic.batteryRisen(50, 100, 80))
+        assertTrue(!Logic.batteryRisen(80, 90, 80))
+        assertTrue(!Logic.batteryRisen(50, 79, 80))
+    }
+
+    @Test fun timeDays() {
+        assertEquals(null, Logic.timeDaysOf("22:00"))
+        assertEquals(null, Logic.timeDaysOf("22:00@1234567"))
+        assertEquals(setOf(2, 3, 4, 5, 6), Logic.timeDaysOf("22:00@23456"))
+        assertEquals("平日", Logic.daysLabel(setOf(2, 3, 4, 5, 6)))
+        assertEquals("週末", Logic.daysLabel(setOf(1, 7)))
+    }
+
+    @Test fun sunEventTokyo() {
+        val sr = Logic.sunEventMinutes(35.68, 139.69, 326, 540, true)
+        val ss = Logic.sunEventMinutes(35.68, 139.69, 326, 540, false)
+        assertTrue("sunrise=$sr", sr in 378..398)
+        assertTrue("sunset=$ss", ss in 979..999)
+    }
+
     @Test fun batteryCrossed_onlyOnCrossing() {
         assertTrue(Logic.batteryCrossed(21, 20, 20))
         assertTrue(Logic.batteryCrossed(50, 10, 20))

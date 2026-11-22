@@ -76,4 +76,21 @@ class StateStore(context: Context) {
     var onboardingDone: Boolean
         get() = prefs.getBoolean("onboardingDone", false)
         set(v) = prefs.edit().putBoolean("onboardingDone", v).apply()
+    // 端末状態のエッジ検出用（-1=未観測, 0=OFF, 1=ON）
+    var stateDnd: Int
+        get() = prefs.getInt("stateDnd", -1)
+        set(v) = prefs.edit().putInt("stateDnd", v).apply()
+    var statePowerSave: Int
+        get() = prefs.getInt("statePowerSave", -1)
+        set(v) = prefs.edit().putInt("statePowerSave", v).apply()
+    var stateAirplane: Int
+        get() = prefs.getInt("stateAirplane", -1)
+        set(v) = prefs.edit().putInt("stateAirplane", v).apply()
+    // 場所きっかけの内外状態（"マクロID=1,..." 形式、1=範囲内）
+    var placeState: String
+        get() = prefs.getString("placeState", "") ?: ""
+        set(v) = prefs.edit().putString("placeState", v).apply()
+    var lastFgPkg: String
+        get() = prefs.getString("lastFgPkg", "") ?: ""
+        set(v) = prefs.edit().putString("lastFgPkg", v).apply()
 }

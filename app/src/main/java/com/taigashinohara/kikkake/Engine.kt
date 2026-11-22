@@ -60,6 +60,28 @@ object Engine {
         return stats != null && stats.isNotEmpty()
     }
 
+    fun hasLocationPermission(context: Context): Boolean =
+        ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    fun hasBluetoothPermission(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < 31) return true
+        return ContextCompat.checkSelfPermission(context, android.Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+    }
+
+    fun isNotificationListenerEnabled(context: Context): Boolean =
+        androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+
+    // 最後に分かっている現在地（GPS→ネットワークの順）。取れなければ null
+    fun lastKnownLatLng(context: Context): Pair<Double, Double>? {
+        if (!hasLocationPermission(context)) return null
+        return try {
+            val lm = context.getSystemService(android.location.LocationManager::class.java)
+            val loc = lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+            if (loc != null) loc.latitude to loc.longitude else null
+        } catch (e: Exception) { null }
+    }
+
     fun canExactAlarm(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < 31) return true
         val am = context.getSystemService(AlarmManager::class.java)
@@ -275,12 +297,18 @@ object Engine {
 
     fun scheduleTimeAlarm(context: Context, macro: Macro) {
         if (macro.trigger != TriggerType.TIME || !macro.enabled) return
-        val parts = macro.triggerParam.split(":")
+        val timePart = macro.triggerParam.substringBefore("@")
+        val parts = timePart.split(":")
         val h = parts.getOrNull(0)?.toIntOrNull() ?: return
         val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        val days = Logic.timeDaysOf(macro.triggerParam)
         val cal = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, m); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-            if (timeInMillis <= System.currentTimeMillis()) add(Calendar.DAY_OF_YEAR, 1)
+            // 曜日指定がある場合は、条件に合う次の日まで進める（最大7日先）
+            var guard = 0
+            while ((timeInMillis <= System.currentTimeMillis() || (days != null && !days.contains(get(Calendar.DAY_OF_WEEK)))) && guard < 8) {
+                add(Calendar.DAY_OF_YEAR, 1); guard++
+            }
         }
         val am = context.getSystemService(AlarmManager::class.java)
         val pi = alarmPendingIntent(context, macro.id)
@@ -303,7 +331,140 @@ object Engine {
     }
 
     fun rescheduleAll(context: Context) {
-        MacroStore(context).load().filter { it.enabled }.forEach { scheduleTimeAlarm(context, it) }
+        MacroStore(context).load().filter { it.enabled }.forEach {
+            scheduleTimeAlarm(context, it)
+            scheduleSunAlarm(context, it)
+        }
+    }
+
+    // 日の出・日の入りアラーム（パラメータ "sunrise@緯度,経度" / "sunset@緯度,経度"）
+    fun scheduleSunAlarm(context: Context, macro: Macro) {
+        if (macro.trigger != TriggerType.SUN_EVENT || !macro.enabled) return
+        val parts = macro.triggerParam.split("@")
+        val sunrise = parts.getOrNull(0) != "sunset"
+        val ll = parts.getOrNull(1)?.split(",")
+        val lat = ll?.getOrNull(0)?.toDoubleOrNull() ?: return
+        val lng = ll?.getOrNull(1)?.toDoubleOrNull() ?: return
+        val now = Calendar.getInstance()
+        val tzMin = (now.get(Calendar.ZONE_OFFSET) + now.get(Calendar.DST_OFFSET)) / 60_000
+        var target: Calendar? = null
+        for (add in 0..1) {
+            val day = (now.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, add) }
+            val mins = Logic.sunEventMinutes(lat, lng, day.get(Calendar.DAY_OF_YEAR), tzMin, sunrise)
+            if (mins < 0) continue
+            val cand = (day.clone() as Calendar).apply {
+                set(Calendar.HOUR_OF_DAY, mins / 60); set(Calendar.MINUTE, mins % 60); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+            }
+            if (cand.timeInMillis > System.currentTimeMillis()) { target = cand; break }
+        }
+        val t = target ?: return
+        val am = context.getSystemService(AlarmManager::class.java)
+        val pi = alarmPendingIntent(context, macro.id)
+        try {
+            if (canExactAlarm(context)) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t.timeInMillis, pi)
+            else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t.timeInMillis, pi)
+        } catch (e: SecurityException) {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t.timeInMillis, pi)
+        }
+    }
+
+    // 端末状態（集中モード／省電力／機内モード）のエッジ検出。レシーバーと定期チェックの両方から呼ばれる
+    fun checkStateEdges(context: Context) {
+        val st = StateStore(context)
+        try {
+            val nm = context.getSystemService(NotificationManager::class.java)
+            val dndOn = nm.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL && nm.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_UNKNOWN
+            fireStateTrigger(context, TriggerType.DND_STATE, st.stateDnd, dndOn) { st.stateDnd = it }
+        } catch (e: Exception) { }
+        try {
+            val pm = context.getSystemService(android.os.PowerManager::class.java)
+            fireStateTrigger(context, TriggerType.POWER_SAVE, st.statePowerSave, pm.isPowerSaveMode) { st.statePowerSave = it }
+        } catch (e: Exception) { }
+        try {
+            val airOn = Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0
+            fireStateTrigger(context, TriggerType.AIRPLANE, st.stateAirplane, airOn) { st.stateAirplane = it }
+        } catch (e: Exception) { }
+    }
+
+    private fun fireStateTrigger(context: Context, type: TriggerType, prev: Int, nowOn: Boolean, save: (Int) -> Unit) {
+        val now = if (nowOn) 1 else 0
+        if (prev == now) return
+        save(now)
+        if (prev == -1) return // 初回観測は発火させず状態だけ覚える
+        val want = if (nowOn) "on" else "off"
+        MacroStore(context).load().filter { it.enabled && it.trigger == type && (it.triggerParam == want || it.triggerParam.isBlank()) }.forEach { execute(context, it) }
+    }
+
+    fun onBluetoothConnected(context: Context, address: String?) {
+        MacroStore(context).load().filter {
+            it.enabled && it.trigger == TriggerType.BLUETOOTH && (it.triggerParam.isBlank() || it.triggerParam == address)
+        }.forEach { execute(context, it) }
+    }
+
+    // 通知が来たら：パラメータ "パッケージ名|キーワード"（キーワード空なら全部）
+    fun onNotificationPosted(context: Context, pkg: String, title: String, text: String) {
+        if (pkg == context.packageName) return
+        MacroStore(context).load().filter { it.enabled && it.trigger == TriggerType.NOTIFICATION_POSTED }.forEach { m ->
+            val parts = m.triggerParam.split("|")
+            val targetPkg = parts.getOrNull(0) ?: ""
+            val keyword = parts.getOrNull(1) ?: ""
+            if (targetPkg.isNotBlank() && targetPkg == pkg && (keyword.isBlank() || title.contains(keyword) || text.contains(keyword))) {
+                execute(context, m)
+            }
+        }
+    }
+
+    // 場所きっかけ：最後に分かっている位置と登録地点（半径200m）の内外エッジで発火
+    fun checkLocations(context: Context) {
+        val targets = MacroStore(context).load().filter { it.enabled && it.trigger == TriggerType.LOCATION }
+        if (targets.isEmpty()) return
+        val ll = lastKnownLatLng(context) ?: return
+        val st = StateStore(context)
+        val states = st.placeState.split(",").filter { it.isNotBlank() }.associate { it.substringBefore("=") to (it.substringAfter("=", "0") == "1") }.toMutableMap()
+        var changed = false
+        targets.forEach { m ->
+            val parts = m.triggerParam.split("@")
+            val tll = parts.getOrNull(1)?.split(",")
+            val tLat = tll?.getOrNull(0)?.toDoubleOrNull() ?: return@forEach
+            val tLng = tll?.getOrNull(1)?.toDoubleOrNull() ?: return@forEach
+            val res = FloatArray(1)
+            android.location.Location.distanceBetween(ll.first, ll.second, tLat, tLng, res)
+            val inside = res[0] <= 200f
+            val key = m.id.toString()
+            val prev = states[key]
+            if (prev == null) { states[key] = inside; changed = true }
+            else if (prev != inside) {
+                states[key] = inside; changed = true
+                val mode = parts.getOrNull(0) ?: "arrive"
+                if ((mode == "arrive" && inside) || (mode == "leave" && !inside)) execute(context, m)
+            }
+        }
+        if (changed) st.placeState = states.entries.joinToString(",") { "${it.key}=${if (it.value) 1 else 0}" }
+    }
+
+    // アプリを閉じたら：前面アプリの移り変わりで判定（定期チェック内）
+    fun checkAppClosed(context: Context) {
+        val targets = MacroStore(context).load().filter { it.enabled && it.trigger == TriggerType.APP_CLOSED && it.triggerParam.isNotBlank() }
+        if (targets.isEmpty()) return
+        if (!hasUsageAccess(context)) return
+        try {
+            val st = StateStore(context)
+            val now = System.currentTimeMillis()
+            val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val events = usm.queryEvents(now - 15 * 60_000, now)
+            val ev = android.app.usage.UsageEvents.Event()
+            var fg: String? = null
+            while (events.hasNextEvent()) {
+                events.getNextEvent(ev)
+                if (ev.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED || ev.eventType == android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND) fg = ev.packageName
+            }
+            val current = fg ?: return
+            val prev = st.lastFgPkg
+            if (prev.isNotBlank() && prev != current && current != context.packageName) {
+                targets.filter { it.triggerParam == prev }.forEach { execute(context, it) }
+            }
+            if (current != context.packageName) st.lastFgPkg = current
+        } catch (e: Exception) { }
     }
 
     fun checkBattery(context: Context, level: Int) {
@@ -313,6 +474,10 @@ object Engine {
         store.load().filter { it.enabled && it.trigger == TriggerType.BATTERY_LOW }.forEach { m ->
             val th = m.triggerParam.replace("%", "").trim().toIntOrNull() ?: 20
             if (Logic.batteryCrossed(prev, level, th)) execute(context, m)
+        }
+        store.load().filter { it.enabled && it.trigger == TriggerType.BATTERY_RISES }.forEach { m ->
+            val th = m.triggerParam.replace("%", "").trim().toIntOrNull() ?: 80
+            if (Logic.batteryRisen(prev, level, th)) execute(context, m)
         }
         st.lastBattery = level
     }

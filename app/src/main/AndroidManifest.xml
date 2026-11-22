@@ -11,6 +11,11 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" xmlns:tools="http://schemas.android.com/tools" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <application android:allowBackup="true" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:label="@string/app_name" android:supportsRtl="true" android:fullBackupContent="@xml/backup_rules" android:dataExtractionRules="@xml/data_extraction_rules" android:theme="@style/Theme.Kikkake">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
@@ -25,6 +30,18 @@
         <receiver android:name=".HeadsetReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.HEADSET_PLUG" /></intent-filter>
         </receiver>
+        <receiver android:name=".AirplaneReceiver" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.AIRPLANE_MODE" /></intent-filter>
+        </receiver>
+        <receiver android:name=".PowerSaveReceiver" android:exported="false">
+            <intent-filter><action android:name="android.os.action.POWER_SAVE_MODE_CHANGED" /></intent-filter>
+        </receiver>
+        <receiver android:name=".BluetoothReceiver" android:exported="false">
+            <intent-filter><action android:name="android.bluetooth.device.action.ACL_CONNECTED" /></intent-filter>
+        </receiver>
+        <service android:name=".KikkakeNotificationListener" android:exported="false" android:label="きっかけ" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
+        </service>
         <receiver android:name=".BootReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
         </receiver>
