@@ -480,7 +480,7 @@ fun KikkakeApp() {
                 Column(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("AIに聞く の設定", fontWeight = FontWeight.Bold, color = Palette.Ink, fontSize = 16.sp)
                     Text(if (keySet) "APIキーは設定済み。端末内AIを優先して使います。" else "端末内AI（対応端末のみ）が使えます。APIキーを入れると、非対応の端末でもAIに聞けます。", color = Palette.InkSoft, fontSize = 13.sp)
-                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.Purple)).pressable { aiKeyInput = StateStore(context).aiApiKey; showAiSettings = true }.padding(horizontal = 16.dp, vertical = 9.dp)) {
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PurpleBg)).pressable { aiKeyInput = StateStore(context).aiApiKey; showAiSettings = true }.padding(horizontal = 16.dp, vertical = 9.dp)) {
                         Text("設定する", color = Palette.Purple, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
@@ -871,13 +871,15 @@ fun PermGuideDialog(macro: Macro, tick: Int, onClose: () -> Unit) {
 
 @Composable
 fun PermRow(title: String, desc: String, howto: String = "", onClick: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            Text(desc, color = Palette.InkSoft, fontSize = 13.sp)
-            if (howto.isNotBlank()) Text(howto, color = Palette.Sky, fontSize = 13.sp)
+    // 横並びだと狭いダイアログで説明文がボタンに押し潰されるため、縦並び（ボタンは下・右寄せ）にする
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        Text(desc, color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 19.sp)
+        if (howto.isNotBlank()) Text(howto, color = Palette.Sky, fontSize = 13.sp, lineHeight = 19.sp)
+        Row(Modifier.fillMaxWidth()) {
+            Spacer(Modifier.weight(1f))
+            Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = Palette.Sky), shape = RoundedCornerShape(999.dp)) { Text("許可する", fontSize = 13.sp, color = Color.White) }
         }
-        Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = Palette.Sky), shape = RoundedCornerShape(999.dp)) { Text("許可する", fontSize = 13.sp, color = Color.White) }
     }
 }
 
@@ -897,10 +899,10 @@ fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
                 Spacer(Modifier.weight(1f))
                 Switch(checked = macro.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Pink, checkedThumbColor = Color.White, uncheckedThumbColor = Color.White, uncheckedTrackColor = Palette.GlassCard, uncheckedBorderColor = Palette.Line))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("▶ テスト", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { onTest() }.padding(vertical = 4.dp))
-                Text("編集", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { onEdit() }.padding(vertical = 4.dp))
-                Text("削除", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { onDelete() }.padding(vertical = 4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("テスト", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f).clickable { onTest() }.padding(vertical = 4.dp))
+                Text("編集", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f).clickable { onEdit() }.padding(vertical = 4.dp))
+                Text("削除", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f).clickable { onDelete() }.padding(vertical = 4.dp))
             }
         }
     }
