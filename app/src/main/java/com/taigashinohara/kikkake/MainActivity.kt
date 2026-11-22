@@ -50,7 +50,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -884,6 +886,24 @@ fun PermRow(title: String, desc: String, howto: String = "", onClick: () -> Unit
 }
 
 @Composable
+fun TileAction(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    // 枠の幅に収まるまで文字を少しずつ小さくする（端末の文字サイズ設定が大きくても欠けたり縦に崩れたりしない）
+    val measurer = rememberTextMeasurer()
+    BoxWithConstraints(modifier.clickable { onClick() }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+        var size = 13.sp
+        val maxW = constraints.maxWidth
+        if (maxW > 0) {
+            while (size.value > 10f) {
+                val w = measurer.measure(text, TextStyle(fontSize = size, fontWeight = FontWeight.Bold)).size.width
+                if (w <= maxW) break
+                size = (size.value - 0.5f).sp
+            }
+        }
+        Text(text, color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = size, maxLines = 1)
+    }
+}
+
+@Composable
 fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
     // 案A「グラス進化」（2026-11-22 本人採用）：自動化を2列タイルで見せる。世界観は Simple Glass のまま
     Box(Modifier.fillMaxSize().glass(24, if (highlighted) Palette.PinkBg else Palette.GlassCard).padding(14.dp)) {
@@ -900,9 +920,9 @@ fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
                 Switch(checked = macro.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Pink, checkedThumbColor = Color.White, uncheckedThumbColor = Color.White, uncheckedTrackColor = Palette.GlassCard, uncheckedBorderColor = Palette.Line))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("テスト", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f).clickable { onTest() }.padding(vertical = 8.dp))
-                Text("編集", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f).clickable { onEdit() }.padding(vertical = 8.dp))
-                Text("削除", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f).clickable { onDelete() }.padding(vertical = 8.dp))
+                TileAction("テスト", Modifier.weight(1f)) { onTest() }
+                TileAction("編集", Modifier.weight(1f)) { onEdit() }
+                TileAction("削除", Modifier.weight(1f)) { onDelete() }
             }
         }
     }
@@ -945,6 +965,7 @@ fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit,
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, notifParam: String, speakParam: String, onNotifParam: (String) -> Unit, onSpeakParam: (String) -> Unit, actionTexts: Map<String, String>, onActionText: (String, String) -> Unit, constraintParam: String, onConstraintParam: (String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
     val context = LocalContext.current
@@ -1001,7 +1022,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                             }
                         }
                         Text("曜日（全部オンなら毎日）", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf(1 to "日", 2 to "月", 3 to "火", 4 to "水", 5 to "木", 6 to "金", 7 to "土").forEach { (d, label) ->
                                 val curSet = Logic.timeDaysOf(param) ?: setOf(1, 2, 3, 4, 5, 6, 7)
                                 val on = curSet.contains(d)
@@ -1185,10 +1206,10 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                     Text("名前と条件", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Purple)
                     OutlinedTextField(value = name, onValueChange = onName, label = { Text("名前（空なら自動でつきます）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.InkSoft, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
                     Text("条件（任意）", color = Palette.Ink, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         ConstraintType.values().forEach { c ->
                             val selected = constraintName == c.name
-                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (selected) solidBrush(Palette.Purple) else tintBrush(Palette.Line)).clickable { onConstraint(c.name) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(c.label, color = if (selected) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (selected) solidBrush(Palette.Purple) else tintBrush(Palette.Line)).clickable { onConstraint(c.name) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(c.label, color = if (selected) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1) }
                         }
                     }
                     Text("平日だけ＝月〜金／夜だけ＝21時〜朝6時", color = Palette.InkSoft, fontSize = 13.sp)
