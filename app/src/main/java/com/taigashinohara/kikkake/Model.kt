@@ -37,10 +37,24 @@ enum class ActionType(val icon: String, val label: String, val detail: String, v
     BRIGHTNESS_DOWN("🌙", "明るさを下げる", "", "画面・ライト"),
     BRIGHTNESS_UP("☀️", "明るさを戻す", "", "画面・ライト"),
     FLASHLIGHT("🔦", "ライト", "", "画面・ライト"),
+    ROTATE_OFF("📐", "画面回転を固定", "自動回転をオフ", "設定を変える"),
+    ROTATE_ON("🔄", "画面回転を自動に", "", "設定を変える"),
+    WALLPAPER("🖼️", "壁紙を変える", "単色から選ぶ", "設定を変える"),
+    WIFI_PANEL("🌐", "Wi-Fi設定を開く", "", "設定を変える"),
+    BT_SETTINGS("🔷", "Bluetooth設定を開く", "", "設定を変える"),
+    OPEN_URL("🔗", "URLを開く", "", "送る・開く"),
+    SHARE_TEXT("📤", "テキストを共有", "", "送る・開く"),
+    SMS_COMPOSE("📩", "メッセージ作成を開く", "", "送る・開く"),
+    CALENDAR_ADD("📅", "予定を追加", "今から1時間", "記録する"),
+    MEMO_SAVE("📝", "メモを保存", "ファイルに書き足す", "記録する"),
+    CLIPBOARD_COPY("📋", "コピーする", "クリップボードへ", "記録する"),
+    LOCATION_NOTIFY("📍", "現在地を知らせる", "通知で出す", "記録する"),
+    WEATHER_NOTIFY("🌤️", "天気を知らせる", "通知で出す", "記録する"),
+    WAIT("⏱️", "少し待つ", "次の動作まで間をあける", "その他"),
     LAUNCH_APP("🚀", "アプリを起動する", "", "その他")
 }
 
-val ActionGroups = listOf("知らせる", "音", "画面・ライト", "その他")
+val ActionGroups = listOf("知らせる", "音", "画面・ライト", "設定を変える", "送る・開く", "記録する", "その他")
 
 enum class ConstraintType(val label: String) {
     NONE("条件なし"), WEEKDAY("平日だけ"), NIGHT("夜だけ")
@@ -89,7 +103,7 @@ object Logic {
         val a = m.actions.joinToString("＋") { item ->
             when {
                 item.type == ActionType.LAUNCH_APP && item.param.isNotBlank() -> "${item.type.label}（${item.param.substringAfterLast('.')}）"
-                (item.type == ActionType.NOTIFICATION || item.type == ActionType.SPEAK) && item.param.isNotBlank() -> "${item.type.label}（${item.param}）"
+                (item.type == ActionType.NOTIFICATION || item.type == ActionType.SPEAK || item.type == ActionType.OPEN_URL || item.type == ActionType.SHARE_TEXT || item.type == ActionType.SMS_COMPOSE || item.type == ActionType.CALENDAR_ADD || item.type == ActionType.MEMO_SAVE || item.type == ActionType.CLIPBOARD_COPY || item.type == ActionType.WALLPAPER || item.type == ActionType.WAIT) && item.param.isNotBlank() -> "${item.type.label}（${item.param}）"
                 else -> item.type.label
             }
         }

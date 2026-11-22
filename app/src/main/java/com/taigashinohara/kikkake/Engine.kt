@@ -82,6 +82,52 @@ object Engine {
         } catch (e: Exception) { null }
     }
 
+    fun hasCalendarPermission(context: Context): Boolean =
+        ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED
+
+    // 通知を1件出す（現在地・天気のアクション用）。成功したら true
+    private fun postNotify(context: Context, macro: Macro, text: String): Boolean {
+        ensureChannel(context)
+        val notif = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(macro.name)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setAutoCancel(true).build()
+        return try { NotificationManagerCompat.from(context).notify((macro.id * 10 + 7).toInt(), notif); true } catch (e: SecurityException) { false }
+    }
+
+    // Open-Meteo（キー不要）で今の天気を取る。失敗したら null
+    private fun fetchWeather(lat: Double, lng: Double): String? {
+        var result: String? = null
+        val latch = CountDownLatch(1)
+        Thread { result = fetchWeatherSync(lat, lng); latch.countDown() }.start()
+        try { latch.await(6, TimeUnit.SECONDS) } catch (e: Exception) { }
+        return result
+    }
+
+    private fun fetchWeatherSync(lat: Double, lng: Double): String? {
+        return try {
+            val url = java.net.URL("https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lng&current=temperature_2m,weather_code")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 5000; conn.readTimeout = 5000
+            val body = conn.inputStream.bufferedReader().readText()
+            val cur = org.json.JSONObject(body).getJSONObject("current")
+            val temp = cur.getDouble("temperature_2m")
+            val code = cur.getInt("weather_code")
+            val label = when (code) {
+                0 -> "晴れ"; 1 -> "ほぼ晴れ"; 2 -> "くもりがち"; 3 -> "くもり"
+                45, 48 -> "霧"; 51, 53, 55 -> "霧雨"; 56, 57 -> "凍る霧雨"
+                61 -> "小雨"; 63 -> "雨"; 65 -> "強い雨"; 66, 67 -> "凍る雨"
+                71 -> "小雪"; 73 -> "雪"; 75 -> "大雪"; 77 -> "霧雪"
+                80 -> "にわか雨"; 81 -> "にわか雨"; 82 -> "激しいにわか雨"
+                85, 86 -> "にわか雪"; 95 -> "雷雨"; 96, 99 -> "雷雨（ひょう）"
+                else -> "不明"
+            }
+            "今の天気：$label ${temp}℃"
+        } catch (e: Exception) { null }
+    }
+
     fun canExactAlarm(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < 31) return true
         val am = context.getSystemService(AlarmManager::class.java)
@@ -224,6 +270,123 @@ object Engine {
                             val next = !currentTorchOn(cm, id, st.torchOn)
                             cm.setTorchMode(id, next); st.torchOn = next; anyOk = true
                         }
+                    } catch (e: Exception) { }
+                }
+                ActionType.ROTATE_OFF -> {
+                    if (!canWriteSettings(context)) { blocked = true } else {
+                        try { Settings.System.putInt(context.contentResolver, Settings.System.ACCELEROMETER_ROTATION, 0); anyOk = true } catch (e: Exception) { blocked = true }
+                    }
+                }
+                ActionType.ROTATE_ON -> {
+                    if (!canWriteSettings(context)) { blocked = true } else {
+                        try { Settings.System.putInt(context.contentResolver, Settings.System.ACCELEROMETER_ROTATION, 1); anyOk = true } catch (e: Exception) { blocked = true }
+                    }
+                }
+                ActionType.WALLPAPER -> {
+                    try {
+                        val colors = mapOf("黒" to 0xFF212121.toInt(), "白" to 0xFFFAFAFA.toInt(), "ピンク" to 0xFFF8BBD0.toInt(), "水色" to 0xFFB3E5FC.toInt(), "紫" to 0xFFE1BEE7.toInt(), "オレンジ" to 0xFFFFE0B2.toInt())
+                        val bmp = android.graphics.Bitmap.createBitmap(1080, 2400, android.graphics.Bitmap.Config.ARGB_8888)
+                        bmp.eraseColor(colors[item.param] ?: 0xFF212121.toInt())
+                        val wm = android.app.WallpaperManager.getInstance(context)
+                        if (Build.VERSION.SDK_INT >= 24) wm.setBitmap(bmp, null, true, android.app.WallpaperManager.FLAG_SYSTEM or android.app.WallpaperManager.FLAG_LOCK) else @Suppress("DEPRECATION") wm.setBitmap(bmp)
+                        anyOk = true
+                    } catch (e: Exception) { blocked = true }
+                }
+                ActionType.WIFI_PANEL -> {
+                    try {
+                        val intent = if (Build.VERSION.SDK_INT >= 29) Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY) else Intent(Settings.ACTION_WIFI_SETTINGS)
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent); anyOk = true
+                    } catch (e: Exception) { blocked = true }
+                }
+                ActionType.BT_SETTINGS -> {
+                    try {
+                        val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent); anyOk = true
+                    } catch (e: Exception) { blocked = true }
+                }
+                ActionType.OPEN_URL -> {
+                    val raw = item.param.trim()
+                    if (raw.isBlank()) { blocked = true } else {
+                        try {
+                            val url = if (raw.startsWith("http://") || raw.startsWith("https://")) raw else "https://$raw"
+                            context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); anyOk = true
+                        } catch (e: Exception) { blocked = true }
+                    }
+                }
+                ActionType.SHARE_TEXT -> {
+                    try {
+                        val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, item.param.ifBlank { macro.name }) }
+                        context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); anyOk = true
+                    } catch (e: Exception) { blocked = true }
+                }
+                ActionType.SMS_COMPOSE -> {
+                    try {
+                        val intent = Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:")).apply { putExtra("sms_body", item.param) }
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent); anyOk = true
+                    } catch (e: Exception) { blocked = true }
+                }
+                ActionType.CALENDAR_ADD -> {
+                    if (!hasCalendarPermission(context)) { blocked = true } else {
+                        try {
+                            val cr = context.contentResolver
+                            var calId: Long? = null
+                            cr.query(android.provider.CalendarContract.Calendars.CONTENT_URI, arrayOf(android.provider.CalendarContract.Calendars._ID), "${android.provider.CalendarContract.Calendars.VISIBLE} = 1", null, null)?.use { c -> if (c.moveToFirst()) calId = c.getLong(0) }
+                            val id = calId
+                            if (id == null) { blocked = true } else {
+                                val now = System.currentTimeMillis()
+                                val values = android.content.ContentValues().apply {
+                                    put(android.provider.CalendarContract.Events.CALENDAR_ID, id)
+                                    put(android.provider.CalendarContract.Events.TITLE, item.param.ifBlank { macro.name })
+                                    put(android.provider.CalendarContract.Events.DTSTART, now)
+                                    put(android.provider.CalendarContract.Events.DTEND, now + 60 * 60_000)
+                                    put(android.provider.CalendarContract.Events.EVENT_TIMEZONE, java.util.TimeZone.getDefault().id)
+                                }
+                                if (cr.insert(android.provider.CalendarContract.Events.CONTENT_URI, values) != null) anyOk = true else blocked = true
+                            }
+                        } catch (e: Exception) { blocked = true }
+                    }
+                }
+                ActionType.MEMO_SAVE -> {
+                    try {
+                        val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir
+                        val file = java.io.File(dir, "kikkake-memo.txt")
+                        val ts = java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.JAPAN).format(java.util.Date())
+                        file.appendText("$ts ${item.param.ifBlank { macro.name }}\n")
+                        anyOk = true
+                    } catch (e: Exception) { blocked = true }
+                }
+                ActionType.CLIPBOARD_COPY -> {
+                    try {
+                        val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("kikkake", item.param))
+                        anyOk = true
+                    } catch (e: Exception) { blocked = true }
+                }
+                ActionType.LOCATION_NOTIFY -> {
+                    val ll = lastKnownLatLng(context)
+                    if (ll == null || !hasNotificationPermission(context)) { blocked = true } else {
+                        val place = try {
+                            @Suppress("DEPRECATION") val list = android.location.Geocoder(context, Locale.JAPAN).getFromLocation(ll.first, ll.second, 1)
+                            val a = list?.firstOrNull()
+                            if (a != null) listOfNotNull(a.locality, a.thoroughfare).joinToString(" ").ifBlank { null } else null
+                        } catch (e: Exception) { null }
+                        val text = place ?: "緯度 ${"%.5f".format(ll.first)}、経度 ${"%.5f".format(ll.second)}"
+                        if (postNotify(context, macro, "現在地：$text")) anyOk = true else blocked = true
+                    }
+                }
+                ActionType.WEATHER_NOTIFY -> {
+                    val ll = lastKnownLatLng(context)
+                    if (ll == null || !hasNotificationPermission(context)) { blocked = true } else {
+                        val w = fetchWeather(ll.first, ll.second)
+                        if (w != null && postNotify(context, macro, w)) anyOk = true else blocked = true
+                    }
+                }
+                ActionType.WAIT -> {
+                    try {
+                        val sec = when (item.param) { "10秒" -> 10L; "30秒" -> 30L; "1分" -> 60L; "5分" -> 300L; else -> 30L }
+                        Thread.sleep(sec * 1000); anyOk = true
                     } catch (e: Exception) { }
                 }
             }

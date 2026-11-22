@@ -223,6 +223,7 @@ fun KikkakeApp() {
     var wLaunchParam by rememberSaveable { mutableStateOf("") }
     var wNotifParam by rememberSaveable { mutableStateOf("") }
     var wSpeakParam by rememberSaveable { mutableStateOf("") }
+    var wActionTexts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var permGuide by remember { mutableStateOf<Macro?>(null) }
     var wConstraint by rememberSaveable { mutableStateOf(ConstraintType.NONE.name) }
     var wName by rememberSaveable { mutableStateOf("") }
@@ -237,10 +238,11 @@ fun KikkakeApp() {
             wLaunchParam = m.actions.firstOrNull { it.type == ActionType.LAUNCH_APP }?.param ?: ""
             wNotifParam = m.actions.firstOrNull { it.type == ActionType.NOTIFICATION }?.param ?: ""
             wSpeakParam = m.actions.firstOrNull { it.type == ActionType.SPEAK }?.param ?: ""
+            wActionTexts = m.actions.filter { it.type == ActionType.OPEN_URL || it.type == ActionType.SHARE_TEXT || it.type == ActionType.SMS_COMPOSE || it.type == ActionType.CALENDAR_ADD || it.type == ActionType.MEMO_SAVE || it.type == ActionType.CLIPBOARD_COPY || it.type == ActionType.WALLPAPER || it.type == ActionType.WAIT }.associate { it.type.name to it.param }
             wConstraint = m.constraintType.name; wName = m.name
         } else {
             editingId = -1L; wTrigger = TriggerType.TIME.name; wParam = "22:00"
-            wActions = setOf(ActionType.NOTIFICATION.name); wLaunchParam = ""; wNotifParam = ""; wSpeakParam = ""; wConstraint = ConstraintType.NONE.name; wName = ""
+            wActions = setOf(ActionType.NOTIFICATION.name); wLaunchParam = ""; wNotifParam = ""; wSpeakParam = ""; wActionTexts = emptyMap(); wConstraint = ConstraintType.NONE.name; wName = ""
         }
         wStep = 1; screen = "wizard"
     }
@@ -283,14 +285,14 @@ fun KikkakeApp() {
             onParam = { wParam = it },
             onToggleAction = { n -> wActions = if (wActions.contains(n)) { if (wActions.size > 1) wActions - n else wActions } else wActions + n },
             onLaunchParam = { wLaunchParam = it },
-            notifParam = wNotifParam, speakParam = wSpeakParam, onNotifParam = { wNotifParam = it }, onSpeakParam = { wSpeakParam = it },
+            notifParam = wNotifParam, speakParam = wSpeakParam, onNotifParam = { wNotifParam = it }, onSpeakParam = { wSpeakParam = it }, actionTexts = wActionTexts, onActionText = { t, v -> wActionTexts = wActionTexts + (t to v) },
             onOpenPicker = { pickerTarget = it },
             onConstraint = { wConstraint = it }, onName = { wName = it },
             onNext = { if (wStep < 3) wStep++ },
             onBack = { if (wStep > 1) wStep-- else screen = "home" },
             onSave = {
                 val t = TriggerType.valueOf(wTrigger)
-                val items = ActionType.values().filter { wActions.contains(it.name) }.map { at -> ActionItem(at, when (at) { ActionType.LAUNCH_APP -> wLaunchParam; ActionType.NOTIFICATION -> wNotifParam; ActionType.SPEAK -> wSpeakParam; else -> "" }) }
+                val items = ActionType.values().filter { wActions.contains(it.name) }.map { at -> ActionItem(at, when (at) { ActionType.LAUNCH_APP -> wLaunchParam; ActionType.NOTIFICATION -> wNotifParam; ActionType.SPEAK -> wSpeakParam; ActionType.OPEN_URL, ActionType.SHARE_TEXT, ActionType.SMS_COMPOSE, ActionType.CALENDAR_ADD, ActionType.MEMO_SAVE, ActionType.CLIPBOARD_COPY, ActionType.WALLPAPER, ActionType.WAIT -> wActionTexts[at.name] ?: ""; else -> "" }) }
                 val nm = wName.ifBlank { Logic.autoName(t, items) }
                 if (editingId > 0) {
                     val old = macros.find { it.id == editingId }
@@ -701,11 +703,12 @@ fun missingPermKeys(context: Context, macros: List<Macro>): Set<String> {
     val keys = mutableSetOf<String>()
     if (macros.any { m -> m.actions.any { it.type == ActionType.NOTIFICATION } } && !Engine.hasNotificationPermission(context)) keys += "notif"
     if (macros.any { m -> m.actions.any { it.type == ActionType.SILENT || it.type == ActionType.SILENT_OFF || it.type == ActionType.DND_ON || it.type == ActionType.DND_OFF } } && !Engine.hasDndAccess(context)) keys += "dnd"
-    if (macros.any { m -> m.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP } } && !Engine.canWriteSettings(context)) keys += "write"
+    if (macros.any { m -> m.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP || it.type == ActionType.ROTATE_OFF || it.type == ActionType.ROTATE_ON } } && !Engine.canWriteSettings(context)) keys += "write"
     if (macros.any { it.trigger == TriggerType.TIME } && !Engine.canExactAlarm(context)) keys += "exact"
     if (macros.any { it.trigger == TriggerType.APP_LAUNCH } && !Engine.hasUsageAccess(context)) keys += "usage"
     if (macros.any { it.trigger == TriggerType.APP_CLOSED } && !Engine.hasUsageAccess(context)) keys += "usage"
-    if (macros.any { it.trigger == TriggerType.LOCATION || it.trigger == TriggerType.SUN_EVENT } && !Engine.hasLocationPermission(context)) keys += "location"
+    if ((macros.any { it.trigger == TriggerType.LOCATION || it.trigger == TriggerType.SUN_EVENT } || macros.any { m -> m.actions.any { it.type == ActionType.LOCATION_NOTIFY || it.type == ActionType.WEATHER_NOTIFY } }) && !Engine.hasLocationPermission(context)) keys += "location"
+    if (macros.any { m -> m.actions.any { it.type == ActionType.CALENDAR_ADD } } && !Engine.hasCalendarPermission(context)) keys += "calendar"
     if (macros.any { it.trigger == TriggerType.BLUETOOTH } && !Engine.hasBluetoothPermission(context)) keys += "bt"
     if (macros.any { it.trigger == TriggerType.NOTIFICATION_POSTED } && !Engine.isNotificationListenerEnabled(context)) keys += "notiflisten"
     return keys
@@ -746,6 +749,10 @@ fun MissingPermRows(macros: List<Macro>, tick: Int) {
     }
     if ("notiflisten" in keys) PermRow("通知へのアクセス", "「通知が来たら」に必要", "開いた一覧で『きっかけ』をオンにしてね") {
         context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+    }
+    if ("calendar" in keys) PermRow("カレンダー", "「予定を追加」に必要", "開いた画面で『権限』→『カレンダー』を許可してね") {
+        val i = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = Uri.parse("package:" + context.packageName) }
+        context.startActivity(i)
     }
 }
 
@@ -846,7 +853,7 @@ fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit,
 }
 
 @Composable
-fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, notifParam: String, speakParam: String, onNotifParam: (String) -> Unit, onSpeakParam: (String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
+fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, notifParam: String, speakParam: String, onNotifParam: (String) -> Unit, onSpeakParam: (String) -> Unit, actionTexts: Map<String, String>, onActionText: (String, String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
     val context = LocalContext.current
     val apps = rememberApps()
     val bondedDevices = remember(triggerName) {
@@ -1021,6 +1028,38 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                         val selLabel = apps.firstOrNull { it.pkg == launchParam }?.label
                         Box(Modifier.fillMaxWidth().pressable { onOpenPicker("action") }.glass(20, Palette.GlassCard).padding(16.dp)) {
                             Text(if (selLabel != null) "起動するアプリ：$selLabel（タップで変更）" else "起動するアプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Orange, fontSize = 15.sp)
+                        }
+                    }
+                    ActionType.values().filter { actionNames.contains(it.name) }.forEach { t ->
+                        val fieldLabel = when (t) {
+                            ActionType.OPEN_URL -> "開くURL"
+                            ActionType.SHARE_TEXT -> "共有するテキスト"
+                            ActionType.SMS_COMPOSE -> "メッセージの本文"
+                            ActionType.CALENDAR_ADD -> "予定のタイトル"
+                            ActionType.MEMO_SAVE -> "保存するメモ"
+                            ActionType.CLIPBOARD_COPY -> "コピーするテキスト"
+                            else -> null
+                        }
+                        if (fieldLabel != null) {
+                            OutlinedTextField(value = actionTexts[t.name] ?: "", onValueChange = { onActionText(t.name, it) }, label = { Text(fieldLabel) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.Pink, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
+                        }
+                        if (t == ActionType.WALLPAPER) {
+                            Text("壁紙の色", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("黒", "白", "ピンク", "水色", "紫", "オレンジ").forEach { v ->
+                                    val sel = (actionTexts[t.name] ?: "黒") == v
+                                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Orange) else tintBrush(Palette.Line)).clickable { onActionText(t.name, v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                                }
+                            }
+                        }
+                        if (t == ActionType.WAIT) {
+                            Text("待つ長さ", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("10秒", "30秒", "1分", "5分").forEach { v ->
+                                    val sel = (actionTexts[t.name] ?: "30秒") == v
+                                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Orange) else tintBrush(Palette.Line)).clickable { onActionText(t.name, v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                                }
+                            }
                         }
                     }
                 }
