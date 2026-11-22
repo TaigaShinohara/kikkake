@@ -1,32 +1,32 @@
 package com.taigashinohara.kikkake
 
 enum class TriggerType(val icon: String, val label: String, val detail: String) {
-    TIME("🕐", "時刻", "決めた時刻になったら"),
-    BATTERY_LOW("🔋", "電池が少ない", "電池が少なくなったら"),
-    WIFI_CONNECTED("📶", "Wi-Fi", "Wi-Fiにつながったら（家に着いたときなど）"),
-    CHARGING_START("🔌", "充電開始", "充電が始まったら"),
-    CHARGING_DONE("✅", "ケーブルを抜いたら", "充電ケーブルを抜いたら（充電中でも、抜けば動く）"),
-    HEADSET("🎧", "ヘッドホン", "有線のイヤホン・ヘッドホンをつないだら"),
-    APP_LAUNCH("📱", "アプリを開いたら", "選んだアプリを開いたら")
+    TIME("🕐", "時刻", ""),
+    BATTERY_LOW("🔋", "電池が少ない", ""),
+    WIFI_CONNECTED("📶", "Wi-Fi", "家に着いたときなど"),
+    CHARGING_START("🔌", "充電開始", ""),
+    CHARGING_DONE("✅", "ケーブルを抜いたら", "充電中でも、抜けば動く"),
+    HEADSET("🎧", "ヘッドホン", "有線のみ"),
+    APP_LAUNCH("📱", "アプリを開いたら", "")
 }
 
 enum class ActionType(val icon: String, val label: String, val detail: String, val group: String) {
-    NOTIFICATION("💬", "通知を出す", "好きな文でお知らせを表示する", "知らせる"),
-    SPEAK("🗣️", "声で知らせる", "好きな文を声で読み上げる", "知らせる"),
-    RING("📣", "音を鳴らす", "通知音を鳴らす", "知らせる"),
-    VIBRATE("📳", "バイブする", "スマホを振動させる", "知らせる"),
-    MEDIA_PLAY_PAUSE("🎵", "音楽を再生／停止", "音楽の再生と停止を切り替える", "音"),
-    MEDIA_NEXT("⏭️", "次の曲へ", "次の曲に進める", "音"),
-    VOLUME_UP("🔊", "音量を上げる", "メディア音量を上げる", "音"),
-    VOLUME_DOWN("🔉", "音量を下げる", "メディア音量を下げる", "音"),
+    NOTIFICATION("💬", "通知を出す", "好きな文でお知らせ", "知らせる"),
+    SPEAK("🗣️", "声で知らせる", "好きな文を声で", "知らせる"),
+    RING("📣", "音を鳴らす", "通知音", "知らせる"),
+    VIBRATE("📳", "バイブする", "", "知らせる"),
+    MEDIA_PLAY_PAUSE("🎵", "音楽を再生／停止", "", "音"),
+    MEDIA_NEXT("⏭️", "次の曲へ", "", "音"),
+    VOLUME_UP("🔊", "音量を上げる", "メディアの音量", "音"),
+    VOLUME_DOWN("🔉", "音量を下げる", "メディアの音量", "音"),
     SILENT("🔕", "マナーモード", "着信音を消す", "音"),
     SILENT_OFF("🔔", "マナーモードを解除", "着信音を元に戻す", "音"),
     DND_ON("😴", "おやすみモード", "通知をぜんぶ止める", "音"),
     DND_OFF("🌅", "おやすみモードを解除", "止めた通知を元に戻す", "音"),
-    BRIGHTNESS_DOWN("🌙", "明るさを下げる", "画面を暗くする", "画面・ライト"),
-    BRIGHTNESS_UP("☀️", "明るさを戻す", "画面の明るさを元に戻す", "画面・ライト"),
-    FLASHLIGHT("🔦", "ライト", "ライトをつけ／消す", "画面・ライト"),
-    LAUNCH_APP("🚀", "アプリを起動する", "選んだアプリを起動する", "その他")
+    BRIGHTNESS_DOWN("🌙", "明るさを下げる", "", "画面・ライト"),
+    BRIGHTNESS_UP("☀️", "明るさを戻す", "", "画面・ライト"),
+    FLASHLIGHT("🔦", "ライト", "", "画面・ライト"),
+    LAUNCH_APP("🚀", "アプリを起動する", "", "その他")
 }
 
 val ActionGroups = listOf("知らせる", "音", "画面・ライト", "その他")

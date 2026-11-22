@@ -11,8 +11,8 @@ android {
         applicationId = "com.taigashinohara.kikkake"
         minSdk = 26
         targetSdk = 36
-        versionCode = 24
-        versionName = "1.6.1"
+        versionCode = 25
+        versionName = "1.7.0"
     }
     signingConfigs {
         val ksFile = rootProject.file(".local/kikkake-debug.jks")

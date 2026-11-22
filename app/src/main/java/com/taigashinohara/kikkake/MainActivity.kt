@@ -341,7 +341,7 @@ fun KikkakeApp() {
                     Box(Modifier.fillMaxWidth().glass(20, Palette.PinkBg).padding(20.dp)) {
                         Column {
                             Text("まだ自動化がありません", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Pink)
-                            Text("下のテンプレから1つ足すか、「＋ つくる」で3ステップで作れます。自分にも作れるよ。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
+                            Text("テンプレから1つ足すか、「＋ つくる」から作れます。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
                         }
                     }
                 }
@@ -413,7 +413,6 @@ fun KikkakeApp() {
                                 Text(t.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                 Text(Logic.summary(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType)), color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp)
                                 if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
-                                Text("タップで追加", color = Palette.Sky, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -779,7 +778,6 @@ fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
             }
             Text(macro.name, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 22.sp, maxLines = 2)
             Text(Logic.summary(macro), color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 19.sp)
-            if (macro.trigger == TriggerType.BATTERY_LOW || macro.trigger == TriggerType.WIFI_CONNECTED || macro.trigger == TriggerType.APP_LAUNCH) Text("約15分ごとにチェック（少し遅れて動きます）", color = Palette.InkSoft, fontSize = 11.sp, lineHeight = 15.sp)
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if (macro.enabled) "オン" else "オフ", color = if (macro.enabled) Palette.Pink else Palette.InkSoft, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -837,7 +835,6 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
     val apps = rememberApps()
     val saveBlocked = (triggerName == TriggerType.APP_LAUNCH.name && param.isBlank()) || (actionNames.contains(ActionType.LAUNCH_APP.name) && launchParam.isBlank())
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(if (isEditing) "自動化を編集" else "自動化をつくる", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Palette.InkSoft)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("① きっかけ" to Palette.Pink, "② やること" to Palette.Orange, "③ 仕上げ" to Palette.Purple).forEachIndexed { idx, (label, color) ->
                 val active = idx + 1 == step
@@ -853,7 +850,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                     TriggerType.values().forEach { t ->
                         val selected = triggerName == t.name
                         Box(Modifier.fillMaxWidth().pressable { onTrigger(t.name) }.glass(20, if (selected) Palette.PinkBg else Palette.GlassCard).padding(16.dp)) {
-                            Column { Text("${t.icon} ${t.label}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (selected) Palette.Pink else Palette.Ink); Text(t.detail, color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp) }
+                            Column { Text("${t.icon} ${t.label}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (selected) Palette.Pink else Palette.Ink); if (t.detail.isNotEmpty()) Text(t.detail, color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp) }
                         }
                     }
                     if (triggerName == TriggerType.TIME.name) {
@@ -876,29 +873,28 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(v, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
                             }
                         }
-                        Text("電池の残りは、アプリを閉じていても約15分ごとにチェックされます。少し遅れて動くことがあります。", color = Palette.InkSoft, fontSize = 13.sp)
+                        Text("約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
                     }
                     if (triggerName == TriggerType.WIFI_CONNECTED.name) {
-                        Text("Wi-Fiの接続は、アプリを閉じていても約15分ごとにチェックされます。少し遅れて動くことがあります。", color = Palette.InkSoft, fontSize = 13.sp)
+                        Text("約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
                     }
                     if (triggerName == TriggerType.APP_LAUNCH.name) {
                         val selLabel = apps.firstOrNull { it.pkg == param }?.label
                         Box(Modifier.fillMaxWidth().pressable { onOpenPicker("trigger") }.glass(20, Palette.GlassCard).padding(16.dp)) {
                             Text(if (selLabel != null) "対象のアプリ：$selLabel（タップで変更）" else "アプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
                         }
-                        Text("アプリを開いたかどうかは、約15分ごとにチェックされます。少し遅れて動くことがあります。", color = Palette.InkSoft, fontSize = 13.sp)
+                        Text("約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
                     }
                 }
                 2 -> {
                     Text("何をする？（複数えらべる）", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Orange)
                     ActionGroups.forEach { g ->
                         Text(g, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Palette.InkSoft)
-                        if (g == "音") Text("マナーモード＝着信音を消すこと。おやすみモード＝通知をぜんぶ止めること。", color = Palette.InkSoft, fontSize = 13.sp)
                         ActionType.values().filter { it.group == g }.forEach { a ->
                             val selected = actionNames.contains(a.name)
                             Box(Modifier.fillMaxWidth().pressable { onToggleAction(a.name) }.glass(20, if (selected) Palette.OrangeBg else Palette.GlassCard).padding(16.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f)) { Text("${a.icon} ${a.label}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (selected) Palette.Orange else Palette.Ink); Text(a.detail, color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp) }
+                                    Column(Modifier.weight(1f)) { Text("${a.icon} ${a.label}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (selected) Palette.Orange else Palette.Ink); if (a.detail.isNotEmpty()) Text(a.detail, color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp) }
                                     if (selected) Text("✓", color = Palette.Orange, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                 }
                             }
@@ -945,7 +941,6 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PurpleBg)).padding(horizontal = 12.dp, vertical = 4.dp)) { Text(ConstraintType.valueOf(constraintName).label, color = Palette.Purple, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
                                 }
                             }
-                            Text(Logic.summary(Macro(0, "", t, param, items, ConstraintType.valueOf(constraintName))), color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
                         }
                     }
                     if (saveBlocked) Text("アプリの選択が終わっていないので、まだ保存できません。もどって選んでね。", color = Palette.Orange, fontSize = 15.sp, fontWeight = FontWeight.Bold)
