@@ -487,7 +487,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
         else -> Templates[0]
     }
 
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         // 進捗は窓ドット：最大5つ、現在を中心に窓が動き、総ページ数を数えさせない
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -624,24 +624,62 @@ fun StepPage(kicker: String, title: String, desc: String, num: String, color: Co
 
 @Composable
 fun HelpScreen(onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("← もどる", color = Palette.Sky, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onBack() }.padding(8.dp))
         }
         Text("使い方", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
         Text("自動化は3ステップで作れます。ホームの「＋ つくる」から始められます。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
-        StepPage("ステップ 1 / 3", "きっかけを選ぶ", "「22時になったら」「電池が減ったら」みたいな、始まりの合図。", "①", Palette.Pink, Palette.PinkBg)
-        StepPage("ステップ 2 / 3", "やることを選ぶ", "静かにする、通知する…。組み合わせもOK。", "②", Palette.Orange, Palette.OrangeBg)
-        StepPage("ステップ 3 / 3", "保存するだけ", "あとはスマホがやってくれる。", "③", Palette.Purple, Palette.PurpleBg)
+        Column {
+            HelpStep("1", Palette.Pink, Palette.PinkBg, "きっかけを選ぶ", "「22時になったら」「電池が減ったら」みたいな、始まりの合図。", listOf("⚡ 充電開始", "🕐 22:00", "🔋 電池が少ない"), showLine = true)
+            HelpStep("2", Palette.Orange, Palette.OrangeBg, "やることを選ぶ", "静かにする、通知する…。組み合わせもOK。", listOf("🔔 通知を出す", "💬 声で知らせる", "🔦 ライト"), showLine = true)
+            HelpStep("3", Palette.Purple, Palette.PurpleBg, "保存するだけ", "あとはスマホがやってくれる。作ったら「▶ テスト」で試せます。", emptyList(), showLine = false)
+        }
         Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("困ったときは", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Ink)
-                Text("・動かない時は、ホーム下の「権限チェック」を見てね。足りない許可があると動きません。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
-                Text("・電池・Wi-Fi・アプリ起動のきっかけは、約15分ごとにチェックするので少し遅れて動きます。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
-                Text("・作った自動化は「▶ テスト実行」ですぐに試せます。結果は「最近の実行」にも残ります。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
+                HelpTip("動かない時は、ホーム下の「権限チェック」を見てね。足りない許可があると動きません。")
+                HelpTip("電池・Wi-Fi・アプリ起動のきっかけは、約15分ごとにチェックするので少し遅れて動きます。")
+                HelpTip("作った自動化は「▶ テスト実行」ですぐに試せます。結果は「最近の実行」にも残ります。")
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+// 使い方画面のステップ1件分（v1.6.1：番号チップ＋縦の線で流れを見せる）
+@Composable
+fun HelpStep(num: String, color: Color, bg: Color, title: String, desc: String, examples: List<String>, showLine: Boolean) {
+    Row(Modifier.height(IntrinsicSize.Min).then(if (showLine) Modifier.padding(bottom = 20.dp) else Modifier)) {
+        Column(Modifier.fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.size(44.dp).clip(RoundedCornerShape(999.dp)).background(tintBrush(bg)), contentAlignment = Alignment.Center) {
+                Text(num, color = color, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+            }
+            if (showLine) Box(Modifier.width(2.dp).weight(1f).background(Palette.Line))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Ink)
+            Text(desc, fontSize = 14.sp, color = Palette.InkSoft, lineHeight = 21.sp)
+            if (examples.isNotEmpty()) {
+                Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    examples.forEach { ex ->
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(bg)).padding(horizontal = 10.dp, vertical = 3.dp)) {
+                            Text(ex, color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HelpTip(text: String) {
+    Row {
+        Box(Modifier.padding(top = 8.dp).size(7.dp).clip(RoundedCornerShape(999.dp)).background(Palette.Sky))
+        Spacer(Modifier.width(10.dp))
+        Text(text, color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
     }
 }
 
@@ -763,7 +801,7 @@ fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit,
     val apps = rememberApps()
     var query by remember { mutableStateOf("") }
     val shown = if (query.isBlank()) apps else apps.filter { it.label.contains(query, ignoreCase = true) }
-    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("← もどる", color = Palette.Sky, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onBack() }.padding(8.dp))
         }
@@ -798,7 +836,7 @@ fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit,
 fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, notifParam: String, speakParam: String, onNotifParam: (String) -> Unit, onSpeakParam: (String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
     val apps = rememberApps()
     val saveBlocked = (triggerName == TriggerType.APP_LAUNCH.name && param.isBlank()) || (actionNames.contains(ActionType.LAUNCH_APP.name) && launchParam.isBlank())
-    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(if (isEditing) "自動化を編集" else "自動化をつくる", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Palette.InkSoft)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("① きっかけ" to Palette.Pink, "② やること" to Palette.Orange, "③ 仕上げ" to Palette.Purple).forEachIndexed { idx, (label, color) ->
