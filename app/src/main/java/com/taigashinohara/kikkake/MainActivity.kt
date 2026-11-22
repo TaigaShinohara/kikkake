@@ -50,9 +50,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -887,20 +885,12 @@ fun PermRow(title: String, desc: String, howto: String = "", onClick: () -> Unit
 
 @Composable
 fun TileAction(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    // 枠の幅に収まるまで文字を少しずつ小さくする（端末の文字サイズ設定が大きくても欠けたり縦に崩れたりしない）
-    val measurer = rememberTextMeasurer()
-    BoxWithConstraints(modifier.clickable { onClick() }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-        var size = 13.sp
-        val maxW = constraints.maxWidth
-        if (maxW > 0) {
-            while (size.value > 10f) {
-                val w = measurer.measure(text, TextStyle(fontSize = size, fontWeight = FontWeight.Bold)).size.width
-                if (w <= maxW) break
-                size = (size.value - 0.5f).sp
-            }
-        }
-        Text(text, color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = size, maxLines = 1)
-    }
+    // 描画後にあふれていたら文字を少し小さくする（端末の文字サイズ設定が大きくても欠けない）
+    // v2.2.4 の「描画前に測る」方式は起動時クラッシュの疑いが強いため、この無難な方式に差し替えた
+    var size by remember { mutableStateOf(13.sp) }
+    Text(text, color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = size, maxLines = 1, softWrap = false, textAlign = TextAlign.Center,
+        onTextLayout = { r -> if (r.hasVisualOverflow && size.value > 10f) size = (size.value - 1f).sp },
+        modifier = modifier.clickable { onClick() }.padding(vertical = 8.dp))
 }
 
 @Composable
