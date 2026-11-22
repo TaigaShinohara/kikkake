@@ -1,4 +1,4 @@
-# きっかけ 仕様 v2.2.1
+# きっかけ 仕様 v2.2.2
 
 ## コンセプト
 3ステップで誰でも作れる、一番やさしい自動化アプリ。Trigger→Action→Constraint を、日本語＋色分けブロックで再構成する。キャッチフレーズ「きっかけを置くだけで、スマホが動く。」質感は Liquid Glass（Simple Glass スキルの読み物ガラス数値に準拠。詳細は ART_DIRECTION.md v2.1）。
@@ -64,6 +64,10 @@ SharedPreferences + JSON（v0.2以前の単一アクション形式からの自�
 【v1.7.0】アプリ全体のノイズ削減（本人の指示、minimal_information_design の手順で監査）：プレビューの二重表示・タイルの遅延注意・「タップで追加」・ウィザード小見出し・用語説明の重複・detail の言い直し13件を削除し、遅延説明を統一短文に。記録は docs/NOISE_AUDIT_v1.6.1.md。機能の増減なし。
 
 【v1.8.0】iOSショートカット同等化 Phase 1（きっかけ拡充）：きっかけを7種→16種に。作る画面のStep1はジャンル見出しで整理し、シンプルさを維持。日の出・日の入りはNOAA近似で計算（テストで東京の実時刻±10分を確認）。場所は「今いる場所」を登録する方式（半径200m）。通知が来たらはアプリ＋任意キーワードで、メール・メッセージ・支払い通知もここで拾う。権限チェックに位置情報・Bluetooth・通知アクセスを追加。計画の正本は docs/ROADMAP_PARITY.md。
+
+【v2.2.2】アプリ全体の見やすさ改善（本人の追加指示、監査は docs/READABILITY_v2.2.2.md）：12sp の文字を全廃（使い方の例チップ・AI設定ダイアログ注記を 13sp へ）、ウィザードのグループ見出しと「できあがり」ラベルを 13sp→14sp、タップ領域の拡大（タイル操作行の縦 padding 4dp→8dp、オンボーディング「もどる」14sp＋padding 8dp、ホーム上部リンクの縦 padding 10dp）、行間を 1.6 に寄せた（タイル要約・許可行の lineHeight 19sp→21sp）。色・レイアウト構造は不変。あわせて v2.2.1 の AAB 生成成功を確認（4,429,455バイト、R8 修正が有効）。
+
+【v2.2.1】実機スクショ起点の見やすさ修正3件＋AAB復旧：①「AIに聞く の設定」の設定ボタンが背景と同色で文字が見えなかった（tintBrush(Palette.Purple) は濃色グラデのため同色文字が消える）→ PurpleBg 地＋Purple 文字に。②許可行（PermRow）が横並びで、狭い許可ガイドダイアログでは説明文がボタンに押し潰されて重なって見えた → 縦並び（ボタンは下・右寄せ）に変更。③マクロタイルの操作行で「削除」が縦に崩れていた → 3ラベルを等分・中央・1行固定にし ▶ を外した。あわせて v2.2.0 の AAB が R8 の Missing classes（Rhino の java.beans 参照）で失敗していた件に -dontwarn 5件を proguard-rules.pro へ追加。
 
 【v2.2.0】本人の追加要望12件を仕分けて実装。できた：AIに聞く（ML Kit GenAI Prompt API＝Gemini Nano、checkStatusで AVAILABLE の時だけ生成、DOWNLOADABLE なら裏でダウンロード開始して次回に回す。予備として Gemini API＝gemini-2.5-flash へ POST、キーは StateStore に端末内保存。答えは {ai} 変数で後続に渡せる）、ウィジェットに表示（新規ホーム画面ウィジェット KikkakeWidgetProvider＋「ウィジェットに表示」アクション）、コマンド実行（/system/bin/sh -c、出力キャプチャ、15秒タイムアウト）、JavaScript実行（Rhino 1.7.15、optimizationLevel=-1 の解釈モード、print() と完了値を通知）、動画を再生・プレイリストを再生（ACTION_VIEW で再生アプリへ）、音楽を再生（KEYCODE_MEDIA_PLAY）、画面を消さない（SCREEN_OFF_TIMEOUT の切替、元の値は StateStore に保存して復帰）、カメラを開く（ACTION_IMAGE_CAPTURE）。もうあった：メモを残す（メモを保存）。見送り：録音（裏での録音は前面サービス＋常駐通知が必須で「静かに動く」設計と合わない）、Watch同期（時計側の専用アプリが別途必要）、カメラの自動撮影（Androidの制限・ポリシーで不可のため「開く」まで）。やることは29種→38種、グループは9つ（AI を追加）。依存追加：genai-prompt 1.0.0-beta4、rhino 1.7.15。テスト17件。
 

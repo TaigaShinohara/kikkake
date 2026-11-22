@@ -382,7 +382,7 @@ fun KikkakeApp() {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("対応する端末では、端末の中のAI（Gemini Nano）がキーなしで答えます。使えない端末では、下のキーで Gemini API に聞きます。", fontSize = 14.sp)
                     OutlinedTextField(value = aiKeyInput, onValueChange = { aiKeyInput = it }, label = { Text("Gemini APIキー（任意）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(16.dp))
-                    Text("キーはこの端末の中だけに保存されます。", fontSize = 12.sp, color = Palette.InkSoft)
+                    Text("キーはこの端末の中だけに保存されます。", fontSize = 13.sp, color = Palette.InkSoft)
                 }
             },
             confirmButton = {
@@ -414,9 +414,9 @@ fun KikkakeApp() {
                     Text("書き出し", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable {
                         val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, exportJson(macros)) }
                         context.startActivity(Intent.createChooser(send, "自動化を書き出す"))
-                    }.padding(8.dp))
-                    Text("読み込み", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { importText = ""; showImport = true }.padding(8.dp))
-                    Text("使い方", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { screen = "help" }.padding(8.dp))
+                    }.padding(horizontal = 8.dp, vertical = 10.dp))
+                    Text("読み込み", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { importText = ""; showImport = true }.padding(horizontal = 8.dp, vertical = 10.dp))
+                    Text("使い方", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { screen = "help" }.padding(horizontal = 8.dp, vertical = 10.dp))
                 }
             }
             if (macros.isEmpty()) {
@@ -694,7 +694,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
             PrimaryButton(if (page >= 7) "始める" else "次へ", modifier = Modifier.fillMaxWidth().height(54.dp)) { hapticFeedback(view, strong = false); if (page >= 7) onFinish() else page++ }
         }
         Row(Modifier.fillMaxWidth()) {
-            if (page > 0) Text("← もどる", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.clickable { page-- }.padding(4.dp))
+            if (page > 0) Text("← もどる", color = Palette.InkSoft, fontSize = 14.sp, modifier = Modifier.clickable { page-- }.padding(8.dp))
             Spacer(Modifier.weight(1f))
             if (page != 6 && page != 7) Text("スキップ", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.clickable { onFinish() }.padding(4.dp))
         }
@@ -757,7 +757,7 @@ fun HelpStep(num: String, color: Color, bg: Color, title: String, desc: String, 
                 Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     examples.forEach { ex ->
                         Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(bg)).padding(horizontal = 10.dp, vertical = 3.dp)) {
-                            Text(ex, color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(ex, color = color, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -874,8 +874,8 @@ fun PermRow(title: String, desc: String, howto: String = "", onClick: () -> Unit
     // 横並びだと狭いダイアログで説明文がボタンに押し潰されるため、縦並び（ボタンは下・右寄せ）にする
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-        Text(desc, color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 19.sp)
-        if (howto.isNotBlank()) Text(howto, color = Palette.Sky, fontSize = 13.sp, lineHeight = 19.sp)
+        Text(desc, color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp)
+        if (howto.isNotBlank()) Text(howto, color = Palette.Sky, fontSize = 13.sp, lineHeight = 21.sp)
         Row(Modifier.fillMaxWidth()) {
             Spacer(Modifier.weight(1f))
             Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = Palette.Sky), shape = RoundedCornerShape(999.dp)) { Text("許可する", fontSize = 13.sp, color = Color.White) }
@@ -892,7 +892,7 @@ fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
                 Text(macro.trigger.icon, fontSize = 19.sp)
             }
             Text(macro.name, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 22.sp, maxLines = 2)
-            Text(Logic.summary(macro), color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 19.sp)
+            Text(Logic.summary(macro), color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp)
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if (macro.enabled) "オン" else "オフ", color = if (macro.enabled) Palette.Pink else Palette.InkSoft, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -900,9 +900,9 @@ fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
                 Switch(checked = macro.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Pink, checkedThumbColor = Color.White, uncheckedThumbColor = Color.White, uncheckedTrackColor = Palette.GlassCard, uncheckedBorderColor = Palette.Line))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("テスト", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f).clickable { onTest() }.padding(vertical = 4.dp))
-                Text("編集", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f).clickable { onEdit() }.padding(vertical = 4.dp))
-                Text("削除", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f).clickable { onDelete() }.padding(vertical = 4.dp))
+                Text("テスト", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f).clickable { onTest() }.padding(vertical = 8.dp))
+                Text("編集", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f).clickable { onEdit() }.padding(vertical = 8.dp))
+                Text("削除", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f).clickable { onDelete() }.padding(vertical = 8.dp))
             }
         }
     }
@@ -977,7 +977,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                 1 -> {
                     Text("いつ動かす？", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Pink)
                     TriggerGroups.forEach { g ->
-                        Text(g, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Palette.InkSoft)
+                        Text(g, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Palette.InkSoft)
                         TriggerType.values().filter { it.group == g }.forEach { t ->
                             val selected = triggerName == t.name
                             Box(Modifier.fillMaxWidth().pressable { onTrigger(t.name) }.glass(20, if (selected) Palette.PinkBg else Palette.GlassCard).padding(16.dp)) {
@@ -1108,7 +1108,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                             if (!showAdvanced) return@forEach
                             Text("文の中に {date} {time} {weekday} {battery} と書くと、実行した時の日時や電池に置き換わるよ", color = Palette.InkSoft, fontSize = 13.sp)
                         } else {
-                            Text(g, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Palette.InkSoft)
+                            Text(g, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Palette.InkSoft)
                         }
                         ActionType.values().filter { it.group == g }.forEach { a ->
                             val selected = actionNames.contains(a.name)
@@ -1205,7 +1205,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                     val items = ActionType.values().filter { actionNames.contains(it.name) }.map { at -> ActionItem(at, if (at == ActionType.LAUNCH_APP) launchParam else "") }
                     Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("できあがり", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Palette.InkSoft)
+                            Text("できあがり", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Palette.InkSoft)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.horizontalScroll(rememberScrollState())) {
                                 val trigLabel = "${t.icon} ${t.label}" + (if (param.isNotBlank() && t != TriggerType.APP_LAUNCH) "（$param）" else "")
                                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PinkBg)).padding(horizontal = 12.dp, vertical = 4.dp)) { Text(trigLabel, color = Palette.Pink, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
