@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:"Noto Sans CJK JP", sans-serif; }
+  body { background:#EFEBE7; width:1560px; padding:44px 40px 40px; }
+  .sheet-title { font-size:34px; font-weight:900; color:#2B2320; letter-spacing:.02em; }
+  .sheet-sub { font-size:16px; color:#7A6E66; margin-top:6px; }
+  .row { display:flex; gap:28px; margin-top:30px; }
+  .col { width:340px; }
+  .phone { width:340px; height:716px; border-radius:44px; overflow:hidden; position:relative;
+           box-shadow:0 18px 40px rgba(43,35,32,.22), 0 0 0 6px #26221F; }
+  .label { margin-top:20px; }
+  .label .name { font-size:21px; font-weight:900; color:#2B2320; }
+  .label .name .tag { display:inline-block; background:#C2185B; color:#fff; font-size:14px; font-weight:800;
+                      border-radius:999px; padding:3px 12px; margin-right:8px; vertical-align:2px; }
+  .label .desc { font-size:14.5px; color:#6B5F58; line-height:1.65; margin-top:6px; }
+
+  /* ---------- 共通パーツ ---------- */
+  .statusbar { display:flex; justify-content:space-between; align-items:center; padding:14px 24px 4px; font-size:12.5px; font-weight:700; }
+  .toggle { width:46px; height:27px; border-radius:999px; position:relative; flex:none; }
+  .toggle::after { content:""; position:absolute; top:3px; width:21px; height:21px; border-radius:50%; background:#fff;
+                   box-shadow:0 1px 3px rgba(0,0,0,.25); }
+  .toggle.on::after { right:3px; }
+  .ic { width:38px; height:38px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex:none; }
+  .ic svg { width:21px; height:21px; }
+
+  /* ---------- 案A グラス進化 ---------- */
+  .a-bg { position:absolute; inset:0; background:linear-gradient(168deg,#FBF3F6 0%,#F7E8F0 46%,#E7F1F8 100%); }
+  .a-blob { position:absolute; border-radius:50%; }
+  .a-in { position:relative; padding:6px 18px 18px; color:#33272E; }
+  .a-in .statusbar { padding:14px 6px 4px; color:#5A4550; }
+  .a-title { font-size:27px; font-weight:900; margin-top:10px; }
+  .a-sub { font-size:12.5px; color:#8A7380; margin-top:2px; }
+  .a-grid { display:flex; gap:12px; margin-top:16px; }
+  .a-tile { flex:1; background:rgba(255,255,255,.58); border:1px solid rgba(255,255,255,.85);
+            border-radius:24px; padding:14px 13px; box-shadow:0 6px 16px rgba(160,90,120,.10); }
+  .a-tile .nm { font-size:15.5px; font-weight:800; line-height:1.35; margin-top:9px; min-height:42px; }
+  .a-tile .sm { font-size:11.5px; color:#7C6672; line-height:1.55; margin-top:4px; min-height:54px; }
+  .a-tile .trow { display:flex; justify-content:space-between; align-items:center; margin-top:8px; }
+  .a-tile .on-label { font-size:11px; font-weight:800; color:#C2185B; }
+  .a-toggle { background:#C2185B; }
+  .a-hist { margin-top:12px; background:rgba(255,255,255,.58); border:1px solid rgba(255,255,255,.85);
+            border-radius:24px; padding:14px 16px; box-shadow:0 6px 16px rgba(160,90,120,.10); }
+  .a-hist .h { font-size:12px; font-weight:800; color:#8A7380; letter-spacing:.06em; }
+  .a-hist .r { display:flex; justify-content:space-between; font-size:13.5px; margin-top:9px; }
+  .a-hist .r b { font-weight:700; }
+  .a-hist .r span { color:#8A7380; font-size:12px; }
+  .a-create { margin-top:12px; background:#C2185B; color:#fff; border-radius:999px; text-align:center;
+              padding:15px 0; font-size:16px; font-weight:800; box-shadow:0 10px 20px rgba(194,24,91,.35); }
+
+  /* ---------- 案B しずかなリスト ---------- */
+  .b-in { background:#FBF9F6; height:100%; padding:6px 26px 20px; color:#2E2A26; }
+  .b-in .statusbar { padding:14px 0 4px; color:#6E675F; }
+  .b-title { font-size:26px; font-weight:900; margin-top:14px; }
+  .b-sub { font-size:12.5px; color:#9A9189; margin-top:3px; }
+  .b-sec { font-size:11.5px; font-weight:800; color:#B0A69C; letter-spacing:.14em; margin:26px 0 4px; }
+  .b-row { display:flex; align-items:center; gap:13px; padding:17px 0; border-bottom:1px solid #EAE4DD; }
+  .b-dot { width:11px; height:11px; border-radius:50%; flex:none; }
+  .b-row .tx { flex:1; }
+  .b-row .nm { font-size:16.5px; font-weight:800; }
+  .b-row .sm { font-size:12.5px; color:#9A9189; margin-top:3px; }
+  .b-toggle { background:#2E2A26; }
+  .b-toggle.off { background:#D8D1C9; }
+  .b-toggle.off::after { left:3px; }
+  .b-hist { padding:13px 0; border-bottom:1px solid #EAE4DD; font-size:13.5px; display:flex; justify-content:space-between; }
+  .b-hist span { color:#9A9189; font-size:12px; }
+  .b-create { margin-top:30px; border:2px solid #2E2A26; color:#2E2A26; border-radius:999px; text-align:center;
+              padding:13px 0; font-size:15.5px; font-weight:800; }
+
+  /* ---------- 案C ダッシュボード ---------- */
+  .c-in { background:#F4F2EF; height:100%; color:#2B2320; display:flex; flex-direction:column; }
+  .c-head { background:linear-gradient(120deg,#C2185B,#8E2A72); color:#fff; padding:6px 22px 20px; border-radius:0 0 30px 30px; }
+  .c-head .statusbar { padding:14px 0 4px; color:rgba(255,255,255,.85); }
+  .c-title { font-size:24px; font-weight:900; margin-top:8px; }
+  .c-stats { display:flex; gap:10px; margin-top:14px; }
+  .c-stat { flex:1; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.35); border-radius:18px; padding:11px 13px; }
+  .c-stat .v { font-size:21px; font-weight:900; }
+  .c-stat .k { font-size:11px; color:rgba(255,255,255,.85); margin-top:1px; }
+  .c-body { padding:16px 18px 0; flex:1; }
+  .c-sec { font-size:12px; font-weight:800; color:#9A9189; letter-spacing:.08em; margin-bottom:10px; }
+  .c-card { background:#fff; border-radius:22px; padding:14px 15px; display:flex; gap:12px; align-items:center;
+            box-shadow:0 4px 12px rgba(43,35,32,.06); margin-bottom:11px; }
+  .c-card .nm { font-size:15.5px; font-weight:800; }
+  .c-card .sm { font-size:12px; color:#9A9189; margin-top:2px; }
+  .c-toggle { background:#C2185B; margin-left:auto; }
+  .c-hist { background:#fff; border-radius:22px; padding:13px 15px; box-shadow:0 4px 12px rgba(43,35,32,.06); }
+  .c-hist .r { display:flex; justify-content:space-between; font-size:13px; padding:5px 0; }
+  .c-hist .r span { color:#9A9189; font-size:12px; }
+  .c-tabs { display:flex; border-top:1px solid #E7E1DB; background:#fff; padding:10px 0 16px; }
+  .c-tab { flex:1; text-align:center; font-size:11px; color:#B0A69C; font-weight:700; }
+  .c-tab .d { width:7px; height:7px; border-radius:50%; background:#D8D1C9; margin:0 auto 5px; }
+  .c-tab.act { color:#C2185B; }
+  .c-tab.act .d { background:#C2185B; }
+
+  /* ---------- 案D ポップダーク ---------- */
+  .d-in { background:#17141F; height:100%; padding:6px 20px 20px; color:#F4F0FA; position:relative; }
+  .d-in .statusbar { padding:14px 4px 4px; color:#9D94B3; }
+  .d-title { font-size:27px; font-weight:900; margin-top:10px; }
+  .d-title em { font-style:normal; color:#F78FB8; }
+  .d-sub { font-size:12.5px; color:#9D94B3; margin-top:3px; }
+  .d-card { background:#221D30; border-radius:26px; padding:16px; margin-top:14px; border-left:6px solid #F06292; }
+  .d-card.o { border-left-color:#FFAB7A; }
+  .d-card .top { display:flex; align-items:center; gap:11px; }
+  .d-card .nm { font-size:16.5px; font-weight:800; flex:1; }
+  .d-toggle { background:#F06292; }
+  .d-toggle.o { background:#FF8A50; }
+  .d-flow { display:flex; align-items:center; gap:7px; margin-top:13px; flex-wrap:wrap; }
+  .chip { font-size:12px; font-weight:800; border-radius:999px; padding:5px 11px; }
+  .chip.pk { background:#FCE7F1; color:#C2185B; }
+  .chip.or { background:#FFEDD9; color:#E65100; }
+  .chip.pu { background:#F1E6F7; color:#6A1B9A; }
+  .d-arrow { color:#9D94B3; font-size:12px; }
+  .d-last { font-size:12px; color:#9D94B3; margin-top:11px; }
+  .d-sec { font-size:12px; font-weight:800; color:#9D94B3; letter-spacing:.08em; margin:22px 0 2px; }
+  .d-hist { font-size:13.5px; padding:9px 0; border-bottom:1px solid #2C2740; display:flex; justify-content:space-between; }
+  .d-hist span { color:#9D94B3; font-size:12px; }
+  .d-fab { position:absolute; right:20px; bottom:22px; width:60px; height:60px; border-radius:50%;
+           background:#C2185B; color:#fff; font-size:28px; font-weight:300; display:flex; align-items:center; justify-content:center;
+           box-shadow:0 12px 24px rgba(194,24,91,.45); }
+</style>
+</head>
+<body>
+  <div class="sheet-title">きっかけ ― ホーム画面デザイン刷新案</div>
+  <div class="sheet-sub">4案とも中身（自動化2件・最近の実行）は同じ。レイアウトとデザインの方向性だけを変えてある。</div>
+
+  <div class="row">
+    <!-- 案A -->
+    <div class="col">
+      <div class="phone">
+        <div class="a-bg"></div>
+        <div class="a-blob" style="width:300px;height:300px;left:-90px;top:-70px;background:radial-gradient(circle,#F8BBD0 0%,rgba(248,187,208,0) 70%);"></div>
+        <div class="a-blob" style="width:280px;height:280px;right:-80px;bottom:120px;background:radial-gradient(circle,#FFCC80 0%,rgba(255,204,128,0) 70%);"></div>
+        <div class="a-blob" style="width:230px;height:230px;left:70px;bottom:-70px;background:radial-gradient(circle,rgba(129,212,250,.55) 0%,rgba(129,212,250,0) 70%);"></div>
+        <div class="a-in">
+          <div class="statusbar"><span>9:41</span><span>5G&nbsp;&nbsp;▮▮▮▯</span></div>
+          <div class="a-title">きっかけ</div>
+          <div class="a-sub">置いてある自動化 2件</div>
+          <div class="a-grid">
+            <div class="a-tile">
+              <div class="ic" style="background:#FCE7F1;"><svg viewBox="0 0 24 24" fill="none" stroke="#C2185B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 L4.5 13.5 H11 L9.5 22 L19 10 H12.5 Z"/></svg></div>
+              <div class="nm">充電お知らせ</div>
+              <div class="sm">充電開始 → 通知を出す</div>
+              <div class="trow"><span class="on-label">オン</span><div class="toggle on a-toggle"></div></div>
+            </div>
+            <div class="a-tile">
+              <div class="ic" style="background:#F1E6F7;"><svg viewBox="0 0 24 24" fill="none" stroke="#6A1B9A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13.5 A8.5 8.5 0 1 1 10.5 4 A7 7 0 0 0 20 13.5 Z"/></svg></div>
+              <div class="nm">夜の静かモード</div>
+              <div class="sm">22:00 → マナーモード＋明るさを下げる</div>
+              <div class="trow"><span class="on-label">オン</span><div class="toggle on a-toggle"></div></div>
+            </div>
+          </div>
+          <div class="a-hist">
+            <div class="h">最近の実行</div>
+            <div class="r"><b>✓ 充電お知らせ</b><span>11月21日 23:10</span></div>
+            <div class="r"><b>✓ 夜の静かモード</b><span>11月21日 22:00</span></div>
+          </div>
+          <div class="a-create">＋ つくる</div>
+        </div>
+      </div>
+      <div class="label">
+        <div class="name"><span class="tag">案A</span>グラス進化</div>
+        <div class="desc">今のガラスの世界観はそのまま、カードを2列タイルにして一目で全部見える形に。変わるのは並びだけなので、迷わず移行できる。</div>
+      </div>
+    </div>
+
+    <!-- 案B -->
+    <div class="col">
+      <div class="phone">
+        <div class="b-in">
+          <div class="statusbar"><span>9:41</span><span>5G&nbsp;&nbsp;▮▮▮▯</span></div>
+          <div class="b-title">きっかけ</div>
+          <div class="b-sub">自動化 2件 ・ どちらもオン</div>
+          <div class="b-sec">自動化</div>
+          <div class="b-row">
+            <div class="b-dot" style="background:#C2185B;"></div>
+            <div class="tx"><div class="nm">充電お知らせ</div><div class="sm">充電開始 → 通知を出す</div></div>
+            <div class="toggle on b-toggle"></div>
+          </div>
+          <div class="b-row">
+            <div class="b-dot" style="background:#6A1B9A;"></div>
+            <div class="tx"><div class="nm">夜の静かモード</div><div class="sm">22:00 → マナーモード＋明るさを下げる</div></div>
+            <div class="toggle on b-toggle"></div>
+          </div>
+          <div class="b-sec">最近の実行</div>
+          <div class="b-hist"><div>✓ 充電お知らせ</div><span>11月21日 23:10</span></div>
+          <div class="b-hist"><div>✓ 夜の静かモード</div><span>11月21日 22:00</span></div>
+          <div class="b-create">＋ つくる</div>
+        </div>
+      </div>
+      <div class="label">
+        <div class="name"><span class="tag">案B</span>しずかなリスト</div>
+        <div class="desc">ガラスもカードもやめて、線と余白だけのリストに。色は点だけ。いちばん読みやすくて、大人っぽく落ち着いた方向。</div>
+      </div>
+    </div>
+
+    <!-- 案C -->
+    <div class="col">
+      <div class="phone">
+        <div class="c-in">
+          <div class="c-head">
+            <div class="statusbar"><span>9:41</span><span>5G&nbsp;&nbsp;▮▮▮▯</span></div>
+            <div class="c-title">きっかけ</div>
+            <div class="c-stats">
+              <div class="c-stat"><div class="v">2件</div><div class="k">オン中</div></div>
+              <div class="c-stat"><div class="v">3回</div><div class="k">今日の実行</div></div>
+              <div class="c-stat"><div class="v">0件</div><div class="k">失敗</div></div>
+            </div>
+          </div>
+          <div class="c-body">
+            <div class="c-sec">自動化</div>
+            <div class="c-card">
+              <div class="ic" style="background:#FCE7F1;"><svg viewBox="0 0 24 24" fill="none" stroke="#C2185B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 L4.5 13.5 H11 L9.5 22 L19 10 H12.5 Z"/></svg></div>
+              <div><div class="nm">充電お知らせ</div><div class="sm">充電開始 → 通知を出す</div></div>
+              <div class="toggle on c-toggle"></div>
+            </div>
+            <div class="c-card">
+              <div class="ic" style="background:#F1E6F7;"><svg viewBox="0 0 24 24" fill="none" stroke="#6A1B9A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13.5 A8.5 8.5 0 1 1 10.5 4 A7 7 0 0 0 20 13.5 Z"/></svg></div>
+              <div><div class="nm">夜の静かモード</div><div class="sm">22:00 → マナーモード＋明るさ</div></div>
+              <div class="toggle on c-toggle"></div>
+            </div>
+            <div class="c-sec" style="margin-top:16px;">最近の実行</div>
+            <div class="c-hist">
+              <div class="r"><div>✓ 充電お知らせ</div><span>23:10</span></div>
+              <div class="r"><div>✓ 夜の静かモード</div><span>22:00</span></div>
+            </div>
+          </div>
+          <div class="c-tabs">
+            <div class="c-tab act"><div class="d"></div>ホーム</div>
+            <div class="c-tab"><div class="d"></div>履歴</div>
+            <div class="c-tab"><div class="d"></div>つくる</div>
+            <div class="c-tab"><div class="d"></div>設定</div>
+          </div>
+        </div>
+      </div>
+      <div class="label">
+        <div class="name"><span class="tag">案C</span>ダッシュボード</div>
+        <div class="desc">頭に「今日のまとめ」を置いて、状態がひと目で分かる形。下にタブも付ける。自動化が増えてきた時のための、管理しやすい方向。</div>
+      </div>
+    </div>
+
+    <!-- 案D -->
+    <div class="col">
+      <div class="phone">
+        <div class="d-in">
+          <div class="statusbar"><span>9:41</span><span>5G&nbsp;&nbsp;▮▮▮▯</span></div>
+          <div class="d-title">きっかけ<em>。</em></div>
+          <div class="d-sub">2件とも、ちゃんと働いてる</div>
+          <div class="d-card">
+            <div class="top">
+              <div class="nm">充電お知らせ</div>
+              <div class="toggle on d-toggle"></div>
+            </div>
+            <div class="d-flow"><span class="chip pk">充電開始</span><span class="d-arrow">→</span><span class="chip or">通知を出す</span></div>
+            <div class="d-last">最終実行：11月21日 23:10</div>
+          </div>
+          <div class="d-card o">
+            <div class="top">
+              <div class="nm">夜の静かモード</div>
+              <div class="toggle on d-toggle o"></div>
+            </div>
+            <div class="d-flow"><span class="chip pk">22:00</span><span class="d-arrow">→</span><span class="chip or">マナーモード</span><span class="chip pu">明るさを下げる</span></div>
+            <div class="d-last">最終実行：11月21日 22:00</div>
+          </div>
+          <div class="d-sec">最近の実行</div>
+          <div class="d-hist"><div>✓ 充電お知らせ</div><span>23:10</span></div>
+          <div class="d-hist"><div>✓ 夜の静かモード</div><span>22:00</span></div>
+          <div class="d-fab">＋</div>
+        </div>
+      </div>
+      <div class="label">
+        <div class="name"><span class="tag">案D</span>ポップダーク</div>
+        <div class="desc">濃い背景に役割色を効かせた、夜に映える方向。チップの色分けで「きっかけ→やること」が色で追える。今と一番違う、ワクワク寄り。</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

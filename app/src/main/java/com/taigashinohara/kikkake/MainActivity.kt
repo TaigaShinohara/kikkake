@@ -253,7 +253,7 @@ fun KikkakeApp() {
         scope.launch {
             val idx = macros.indexOfFirst { it.id == m.id }
             // ヘッダー分を概算でずらして新規カードへ寄せる
-            listState.animateScrollToItem(if (idx >= 0) idx + 3 else 3)
+            listState.animateScrollToItem(if (idx >= 0) idx / 2 + 1 else 1)
             snackbarHost.showSnackbar(message)
         }
     }
@@ -346,42 +346,49 @@ fun KikkakeApp() {
                     }
                 }
             }
-            itemsIndexed(macros, key = { _, m -> m.id }) { _, m ->
-                MacroCard(
-                    macro = m, highlighted = m.id == highlightId,
-                    onToggle = {
-                        val updated = m.copy(enabled = !m.enabled)
-                        saveMacros(macros.map { if (it.id == m.id) updated else it })
-                        if (updated.enabled) Engine.scheduleTimeAlarm(context, updated) else Engine.cancelTimeAlarm(context, updated)
-                    },
-                    onTest = {
-                        // 声で知らせる等の完了待ちがあるため、テストはバックグラウンドで実行する
-                        scope.launch {
-                            val r = withContext(Dispatchers.IO) { Engine.executeTest(context, m) }
-                            val msg = when (r) {
-                                Engine.ExecResult.OK -> "動いたよ ✓"
-                                Engine.ExecResult.PARTIAL_OK -> "一部の動作は許可が足りなくて動かなかったよ。下の「権限チェック」を見てね"
-                                Engine.ExecResult.BLOCKED_BY_PERMISSION -> "許可が足りない動作があったよ。下の「権限チェック」を見てね"
-                                else -> "今は動かせる動作がなかったよ"
-                            }
-                            snackbarHost.showSnackbar(msg)
-                            reload()
-                        }
-                    },
-                    onEdit = { startWizard(m) },
-                    onDelete = {
-                        Engine.cancelTimeAlarm(context, m)
-                        val removed = m
-                        saveMacros(macros.filter { it.id != m.id })
-                        scope.launch {
-                            val res = snackbarHost.showSnackbar("「${removed.name}」を消したよ", actionLabel = "元に戻す", duration = SnackbarDuration.Short)
-                            if (res == SnackbarResult.ActionPerformed) {
-                                saveMacros(store.load() + removed)
-                                Engine.scheduleTimeAlarm(context, removed)
-                            }
+            items(macros.chunked(2), key = { row -> row.first().id }) { pair ->
+                Row(Modifier.height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    pair.forEach { m ->
+                        Box(Modifier.weight(1f).fillMaxHeight()) {
+                            MacroTile(
+                                macro = m, highlighted = m.id == highlightId,
+                                onToggle = {
+                                    val updated = m.copy(enabled = !m.enabled)
+                                    saveMacros(macros.map { if (it.id == m.id) updated else it })
+                                    if (updated.enabled) Engine.scheduleTimeAlarm(context, updated) else Engine.cancelTimeAlarm(context, updated)
+                                },
+                                onTest = {
+                                    // 声で知らせる等の完了待ちがあるため、テストはバックグラウンドで実行する
+                                    scope.launch {
+                                        val r = withContext(Dispatchers.IO) { Engine.executeTest(context, m) }
+                                        val msg = when (r) {
+                                            Engine.ExecResult.OK -> "動いたよ ✓"
+                                            Engine.ExecResult.PARTIAL_OK -> "一部の動作は許可が足りなくて動かなかったよ。下の「権限チェック」を見てね"
+                                            Engine.ExecResult.BLOCKED_BY_PERMISSION -> "許可が足りない動作があったよ。下の「権限チェック」を見てね"
+                                            else -> "今は動かせる動作がなかったよ"
+                                        }
+                                        snackbarHost.showSnackbar(msg)
+                                        reload()
+                                    }
+                                },
+                                onEdit = { startWizard(m) },
+                                onDelete = {
+                                    Engine.cancelTimeAlarm(context, m)
+                                    val removed = m
+                                    saveMacros(macros.filter { it.id != m.id })
+                                    scope.launch {
+                                        val res = snackbarHost.showSnackbar("「${removed.name}」を消したよ", actionLabel = "元に戻す", duration = SnackbarDuration.Short)
+                                        if (res == SnackbarResult.ActionPerformed) {
+                                            saveMacros(store.load() + removed)
+                                            Engine.scheduleTimeAlarm(context, removed)
+                                        }
+                                    }
+                                }
+                            )
                         }
                     }
-                )
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
             }
             item { RunLogSection(stateStore.runLog) }
             item { PermissionSection(resumeTick, macros) }
@@ -725,37 +732,26 @@ fun PermRow(title: String, desc: String, howto: String = "", onClick: () -> Unit
 }
 
 @Composable
-fun MacroCard(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
-    val apps = rememberApps()
-    val triggerChip = when {
-        macro.trigger == TriggerType.APP_LAUNCH && macro.triggerParam.isNotBlank() -> "アプリを開いたら（${apps.firstOrNull { it.pkg == macro.triggerParam }?.label ?: macro.triggerParam.substringAfterLast('.')}）"
-        macro.triggerParam.isNotBlank() -> "${macro.trigger.label}（${macro.triggerParam}）"
-        else -> macro.trigger.label
-    }
-    Box(Modifier.fillMaxWidth().glass(20, if (highlighted) Palette.PinkBg else Palette.GlassCard).padding(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+    // 案A「グラス進化」（2026-11-22 本人採用）：自動化を2列タイルで見せる。世界観は Simple Glass のまま
+    Box(Modifier.fillMaxSize().glass(24, if (highlighted) Palette.PinkBg else Palette.GlassCard).padding(14.dp)) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(tintBrush(Palette.PinkBg)), contentAlignment = Alignment.Center) {
+                Text(macro.trigger.icon, fontSize = 19.sp)
+            }
+            Text(macro.name, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 22.sp, maxLines = 2)
+            Text(Logic.summary(macro), color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 19.sp)
+            if (macro.trigger == TriggerType.BATTERY_LOW || macro.trigger == TriggerType.WIFI_CONNECTED || macro.trigger == TriggerType.APP_LAUNCH) Text("約15分ごとにチェック（少し遅れて動きます）", color = Palette.InkSoft, fontSize = 11.sp, lineHeight = 15.sp)
+            Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(macro.name, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
                 Text(if (macro.enabled) "オン" else "オフ", color = if (macro.enabled) Palette.Pink else Palette.InkSoft, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
                 Switch(checked = macro.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Pink, checkedThumbColor = Color.White, uncheckedThumbColor = Color.White, uncheckedTrackColor = Palette.GlassCard, uncheckedBorderColor = Palette.Line))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PinkBg)).padding(horizontal = 12.dp, vertical = 4.dp)) { Text("${macro.trigger.icon} $triggerChip", color = Palette.Pink, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
-                Text("→", color = Palette.InkSoft)
-                macro.actions.forEach { item ->
-                    val label = "${item.type.icon} " + (if (item.type == ActionType.LAUNCH_APP && item.param.isNotBlank()) "${item.type.label}（${apps.firstOrNull { it.pkg == item.param }?.label ?: item.param.substringAfterLast('.')}）" else item.type.label)
-                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.OrangeBg)).padding(horizontal = 12.dp, vertical = 4.dp)) { Text(label, color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
-                }
-                if (macro.constraintType != ConstraintType.NONE) {
-                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PurpleBg)).padding(horizontal = 12.dp, vertical = 4.dp)) { Text(macro.constraintType.label, color = Palette.Purple, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
-                }
-            }
-            if (macro.trigger == TriggerType.BATTERY_LOW || macro.trigger == TriggerType.WIFI_CONNECTED || macro.trigger == TriggerType.APP_LAUNCH) Text("約15分ごとにチェックしています（少し遅れて動くことがあります）", color = Palette.InkSoft, fontSize = 13.sp)
-            if (macro.lastRunAt > 0) Text("最終実行：${SimpleDateFormat("M月d日 HH:mm", Locale.JAPAN).format(Date(macro.lastRunAt))}", color = Palette.Sky, fontSize = 13.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onTest, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1.5f)) { Text("▶ テスト実行", fontSize = 15.sp, color = Palette.Pink, maxLines = 1) }
-                OutlinedButton(onClick = onEdit, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("編集", fontSize = 15.sp, color = Palette.Pink, maxLines = 1) }
-                OutlinedButton(onClick = onDelete, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("削除", fontSize = 15.sp, color = Palette.Pink, maxLines = 1) }
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("▶ テスト", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { onTest() }.padding(vertical = 4.dp))
+                Text("編集", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { onEdit() }.padding(vertical = 4.dp))
+                Text("削除", color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { onDelete() }.padding(vertical = 4.dp))
             }
         }
     }
