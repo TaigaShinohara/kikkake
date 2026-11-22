@@ -542,8 +542,8 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     BackHandler(enabled = page > 0) { page-- }
 
     val trialTemplate = when (trouble) {
-        "battery" -> Templates[2]
-        else -> Templates[0]
+        "battery" -> Templates[4]
+        else -> Templates[2]
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
