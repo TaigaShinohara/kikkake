@@ -62,6 +62,20 @@ class LogicTest {
         assertEquals("週末", Logic.daysLabel(setOf(1, 7)))
     }
 
+    @Test fun expandVarsReplaces() {
+        val out = Logic.expandVars("{date} {time} {weekday} 電池{battery}%", "2026/11/22", "07:30", "日", 85)
+        assertEquals("2026/11/22 07:30 日 電池85%", out)
+    }
+
+    @Test fun expandRepeatsDuplicatesPrevious() {
+        val input = listOf(ActionItem(ActionType.VIBRATE), ActionItem(ActionType.REPEAT, "3回"), ActionItem(ActionType.RING))
+        val out = Logic.expandRepeats(input)
+        assertEquals(5, out.size)
+        assertEquals(ActionType.VIBRATE, out[3].type)
+        assertEquals(ActionType.RING, out[4].type)
+        assertEquals(1, Logic.expandRepeats(listOf(ActionItem(ActionType.REPEAT, "2回"), ActionItem(ActionType.RING))).size)
+    }
+
     @Test fun sunEventTokyo() {
         val sr = Logic.sunEventMinutes(35.68, 139.69, 326, 540, true)
         val ss = Logic.sunEventMinutes(35.68, 139.69, 326, 540, false)

@@ -33,6 +33,7 @@ class MacroStore(context: Context) {
                     triggerParam = o.optString("param", ""),
                     actions = actions,
                     constraintType = ConstraintType.valueOf(o.optString("constraint", "NONE")),
+                    constraintParam = o.optString("constraintParam", ""),
                     enabled = o.optBoolean("enabled", true),
                     lastRunAt = o.optLong("lastRunAt", 0L)
                 )
@@ -49,11 +50,55 @@ class MacroStore(context: Context) {
             arr.put(JSONObject().apply {
                 put("id", m.id); put("name", m.name); put("trigger", m.trigger.name)
                 put("param", m.triggerParam); put("actions", aArr)
-                put("constraint", m.constraintType.name); put("enabled", m.enabled); put("lastRunAt", m.lastRunAt)
+                put("constraint", m.constraintType.name); put("constraintParam", m.constraintParam); put("enabled", m.enabled); put("lastRunAt", m.lastRunAt)
             })
         }
         prefs.edit().putString("list", arr.toString()).apply()
     }
+}
+
+// 書き出し（JSON文字列）。読み込みは id を振り直して返す
+fun exportJson(list: List<Macro>): String {
+    val arr = JSONArray()
+    list.forEach { m ->
+        val aArr = JSONArray()
+        m.actions.forEach { a -> aArr.put(JSONObject().apply { put("type", a.type.name); put("param", a.param) }) }
+        arr.put(JSONObject().apply {
+            put("id", m.id); put("name", m.name); put("trigger", m.trigger.name)
+            put("param", m.triggerParam); put("actions", aArr)
+            put("constraint", m.constraintType.name); put("constraintParam", m.constraintParam); put("enabled", m.enabled); put("lastRunAt", m.lastRunAt)
+        })
+    }
+    return arr.toString()
+}
+
+fun importJson(raw: String): List<Macro>? {
+    return try {
+        val arr = JSONArray(raw)
+        val out = mutableListOf<Macro>()
+        val base = System.currentTimeMillis()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val actions = mutableListOf<ActionItem>()
+            val aArr = o.optJSONArray("actions")
+            if (aArr != null) for (j in 0 until aArr.length()) {
+                val ao = aArr.getJSONObject(j)
+                actions.add(ActionItem(ActionType.valueOf(ao.getString("type")), ao.optString("param", "")))
+            }
+            if (actions.isEmpty()) actions.add(ActionItem(ActionType.NOTIFICATION))
+            out.add(Macro(
+                id = base + i,
+                name = o.optString("name", "読み込んだ自動化"),
+                trigger = TriggerType.valueOf(o.getString("trigger")),
+                triggerParam = o.optString("param", ""),
+                actions = actions,
+                constraintType = ConstraintType.valueOf(o.optString("constraint", "NONE")),
+                constraintParam = o.optString("constraintParam", ""),
+                enabled = true, lastRunAt = 0L
+            ))
+        }
+        out
+    } catch (e: Exception) { null }
 }
 
 class StateStore(context: Context) {

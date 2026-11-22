@@ -2,6 +2,9 @@ package com.taigashinohara.kikkake
 
 import android.content.Context
 import android.content.Intent
+import android.nfc.NfcAdapter
+import android.os.Handler
+import android.os.Looper
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.content.pm.PackageManager
@@ -160,6 +163,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         Engine.ensureChannel(this)
         MonitorWorker.enqueue(this)
+        handleNfc(intent)
         setContent {
             val dark = isSystemInDarkTheme()
             Palette.applyDark(dark)
@@ -167,6 +171,25 @@ class MainActivity : ComponentActivity() {
                 Surface(Modifier.fillMaxSize(), color = Color.Transparent) { Box(Modifier.fillMaxSize()) { AppBackground(); KikkakeApp() } }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNfc(intent)
+    }
+
+    // NFCタグをかざしたら、NFCきっかけの自動化を実行する（アプリを開いている時だけ拾える）
+    private fun handleNfc(intent: Intent?) {
+        val action = intent?.action ?: return
+        if (action != NfcAdapter.ACTION_TAG_DISCOVERED && action != NfcAdapter.ACTION_TECH_DISCOVERED && action != NfcAdapter.ACTION_NDEF_DISCOVERED) return
+        Thread {
+            val targets = MacroStore(this).load().filter { it.enabled && it.trigger == TriggerType.NFC }
+            var ran = 0
+            targets.forEach { if (Engine.execute(this, it)) ran++ }
+            val msg = if (targets.isEmpty()) "NFCタグ用の自動化はまだないよ" else if (ran > 0) "NFCタグで ${ran}件 実行したよ" else "条件に合わなくて実行しなかった"
+            Handler(Looper.getMainLooper()).post { android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show() }
+        }.start()
     }
 }
 
@@ -224,7 +247,10 @@ fun KikkakeApp() {
     var wNotifParam by rememberSaveable { mutableStateOf("") }
     var wSpeakParam by rememberSaveable { mutableStateOf("") }
     var wActionTexts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var wConstraintParam by rememberSaveable { mutableStateOf("") }
     var permGuide by remember { mutableStateOf<Macro?>(null) }
+    var showImport by remember { mutableStateOf(false) }
+    var importText by remember { mutableStateOf("") }
     var wConstraint by rememberSaveable { mutableStateOf(ConstraintType.NONE.name) }
     var wName by rememberSaveable { mutableStateOf("") }
     var wStep by rememberSaveable { mutableIntStateOf(1) }
@@ -238,11 +264,12 @@ fun KikkakeApp() {
             wLaunchParam = m.actions.firstOrNull { it.type == ActionType.LAUNCH_APP }?.param ?: ""
             wNotifParam = m.actions.firstOrNull { it.type == ActionType.NOTIFICATION }?.param ?: ""
             wSpeakParam = m.actions.firstOrNull { it.type == ActionType.SPEAK }?.param ?: ""
-            wActionTexts = m.actions.filter { it.type == ActionType.OPEN_URL || it.type == ActionType.SHARE_TEXT || it.type == ActionType.SMS_COMPOSE || it.type == ActionType.CALENDAR_ADD || it.type == ActionType.MEMO_SAVE || it.type == ActionType.CLIPBOARD_COPY || it.type == ActionType.WALLPAPER || it.type == ActionType.WAIT }.associate { it.type.name to it.param }
+            wActionTexts = m.actions.filter { it.type == ActionType.OPEN_URL || it.type == ActionType.SHARE_TEXT || it.type == ActionType.SMS_COMPOSE || it.type == ActionType.CALENDAR_ADD || it.type == ActionType.MEMO_SAVE || it.type == ActionType.CLIPBOARD_COPY || it.type == ActionType.WALLPAPER || it.type == ActionType.WAIT || it.type == ActionType.WEB_REQUEST || it.type == ActionType.REPEAT }.associate { it.type.name to it.param }
+            wConstraintParam = m.constraintParam
             wConstraint = m.constraintType.name; wName = m.name
         } else {
             editingId = -1L; wTrigger = TriggerType.TIME.name; wParam = "22:00"
-            wActions = setOf(ActionType.NOTIFICATION.name); wLaunchParam = ""; wNotifParam = ""; wSpeakParam = ""; wActionTexts = emptyMap(); wConstraint = ConstraintType.NONE.name; wName = ""
+            wActions = setOf(ActionType.NOTIFICATION.name); wLaunchParam = ""; wNotifParam = ""; wSpeakParam = ""; wActionTexts = emptyMap(); wConstraint = ConstraintType.NONE.name; wConstraintParam = ""; wName = ""
         }
         wStep = 1; screen = "wizard"
     }
@@ -285,25 +312,25 @@ fun KikkakeApp() {
             onParam = { wParam = it },
             onToggleAction = { n -> wActions = if (wActions.contains(n)) { if (wActions.size > 1) wActions - n else wActions } else wActions + n },
             onLaunchParam = { wLaunchParam = it },
-            notifParam = wNotifParam, speakParam = wSpeakParam, onNotifParam = { wNotifParam = it }, onSpeakParam = { wSpeakParam = it }, actionTexts = wActionTexts, onActionText = { t, v -> wActionTexts = wActionTexts + (t to v) },
+            notifParam = wNotifParam, speakParam = wSpeakParam, onNotifParam = { wNotifParam = it }, onSpeakParam = { wSpeakParam = it }, actionTexts = wActionTexts, onActionText = { t, v -> wActionTexts = wActionTexts + (t to v) }, constraintParam = wConstraintParam, onConstraintParam = { wConstraintParam = it },
             onOpenPicker = { pickerTarget = it },
             onConstraint = { wConstraint = it }, onName = { wName = it },
             onNext = { if (wStep < 3) wStep++ },
             onBack = { if (wStep > 1) wStep-- else screen = "home" },
             onSave = {
                 val t = TriggerType.valueOf(wTrigger)
-                val items = ActionType.values().filter { wActions.contains(it.name) }.map { at -> ActionItem(at, when (at) { ActionType.LAUNCH_APP -> wLaunchParam; ActionType.NOTIFICATION -> wNotifParam; ActionType.SPEAK -> wSpeakParam; ActionType.OPEN_URL, ActionType.SHARE_TEXT, ActionType.SMS_COMPOSE, ActionType.CALENDAR_ADD, ActionType.MEMO_SAVE, ActionType.CLIPBOARD_COPY, ActionType.WALLPAPER, ActionType.WAIT -> wActionTexts[at.name] ?: ""; else -> "" }) }
+                val items = ActionType.values().filter { wActions.contains(it.name) }.map { at -> ActionItem(at, when (at) { ActionType.LAUNCH_APP -> wLaunchParam; ActionType.NOTIFICATION -> wNotifParam; ActionType.SPEAK -> wSpeakParam; ActionType.OPEN_URL, ActionType.SHARE_TEXT, ActionType.SMS_COMPOSE, ActionType.CALENDAR_ADD, ActionType.MEMO_SAVE, ActionType.CLIPBOARD_COPY, ActionType.WALLPAPER, ActionType.WAIT, ActionType.WEB_REQUEST, ActionType.REPEAT -> wActionTexts[at.name] ?: ""; else -> "" }) }
                 val nm = wName.ifBlank { Logic.autoName(t, items) }
                 if (editingId > 0) {
                     val old = macros.find { it.id == editingId }
-                    val updated = Macro(id = editingId, name = nm, trigger = t, triggerParam = wParam, actions = items, constraintType = ConstraintType.valueOf(wConstraint), enabled = old?.enabled ?: true, lastRunAt = old?.lastRunAt ?: 0L)
+                    val updated = Macro(id = editingId, name = nm, trigger = t, triggerParam = wParam, actions = items, constraintType = ConstraintType.valueOf(wConstraint), constraintParam = wConstraintParam, enabled = old?.enabled ?: true, lastRunAt = old?.lastRunAt ?: 0L)
                     if (old != null) Engine.cancelTimeAlarm(context, old)
                     saveMacros(macros.map { if (it.id == editingId) updated else it })
                     Engine.scheduleTimeAlarm(context, updated); Engine.scheduleSunAlarm(context, updated)
                     if (missingPermKeys(context, listOf(updated)).isNotEmpty()) permGuide = updated
                     Toast.makeText(context, "直したよ", Toast.LENGTH_SHORT).show()
                 } else {
-                    val m = Macro(id = System.currentTimeMillis(), name = nm, trigger = t, triggerParam = wParam, actions = items, constraintType = ConstraintType.valueOf(wConstraint), enabled = true)
+                    val m = Macro(id = System.currentTimeMillis(), name = nm, trigger = t, triggerParam = wParam, actions = items, constraintType = ConstraintType.valueOf(wConstraint), constraintParam = wConstraintParam, enabled = true)
                     addMacro(m, "作れたよ！「${nm}」")
                 }
                 screen = "home"
@@ -319,6 +346,32 @@ fun KikkakeApp() {
     }
 
     permGuide?.let { g -> PermGuideDialog(macro = g, tick = resumeTick, onClose = { permGuide = null }) }
+    if (showImport) {
+        AlertDialog(
+            onDismissRequest = { showImport = false },
+            title = { Text("自動化を読み込む") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("書き出した文を貼り付けてね。今ある自動化は消えず、後ろに足されます。", fontSize = 14.sp)
+                    OutlinedTextField(value = importText, onValueChange = { importText = it }, modifier = Modifier.fillMaxWidth().height(140.dp), shape = RoundedCornerShape(16.dp))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val imported = importJson(importText)
+                    showImport = false
+                    if (imported != null && imported.isNotEmpty()) {
+                        saveMacros(macros + imported)
+                        imported.forEach { Engine.scheduleTimeAlarm(context, it); Engine.scheduleSunAlarm(context, it) }
+                        scope.launch { snackbarHost.showSnackbar("${imported.size}件 読み込んだよ") }
+                    } else {
+                        scope.launch { snackbarHost.showSnackbar("読み込めなかった。文を確認してね") }
+                    }
+                }) { Text("読み込む") }
+            },
+            dismissButton = { TextButton(onClick = { showImport = false }) { Text("やめる") } }
+        )
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -335,6 +388,11 @@ fun KikkakeApp() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("きっかけ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                     Spacer(Modifier.weight(1f))
+                    Text("書き出し", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable {
+                        val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, exportJson(macros)) }
+                        context.startActivity(Intent.createChooser(send, "自動化を書き出す"))
+                    }.padding(8.dp))
+                    Text("読み込み", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { importText = ""; showImport = true }.padding(8.dp))
                     Text("使い方", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { screen = "help" }.padding(8.dp))
                 }
             }
@@ -853,7 +911,7 @@ fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit,
 }
 
 @Composable
-fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, notifParam: String, speakParam: String, onNotifParam: (String) -> Unit, onSpeakParam: (String) -> Unit, actionTexts: Map<String, String>, onActionText: (String, String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
+fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, notifParam: String, speakParam: String, onNotifParam: (String) -> Unit, onSpeakParam: (String) -> Unit, actionTexts: Map<String, String>, onActionText: (String, String) -> Unit, constraintParam: String, onConstraintParam: (String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
     val context = LocalContext.current
     val apps = rememberApps()
     val bondedDevices = remember(triggerName) {
@@ -864,6 +922,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
             } catch (e: Exception) { emptyList() }
         } else emptyList()
     }
+    var showAdvanced by remember { mutableStateOf(false) }
     val saveBlocked = (triggerName == TriggerType.APP_LAUNCH.name && param.isBlank()) || (actionNames.contains(ActionType.LAUNCH_APP.name) && launchParam.isBlank()) ||
         (triggerName == TriggerType.APP_CLOSED.name && param.isBlank()) ||
         (triggerName == TriggerType.NOTIFICATION_POSTED.name && param.substringBefore("|").isBlank()) ||
@@ -1007,7 +1066,15 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                 2 -> {
                     Text("何をする？（複数えらべる）", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Orange)
                     ActionGroups.forEach { g ->
-                        Text(g, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Palette.InkSoft)
+                        if (g == "上級者向け") {
+                            Box(Modifier.fillMaxWidth().pressable { showAdvanced = !showAdvanced }.glass(20, Palette.GlassCard).padding(16.dp)) {
+                                Text(if (showAdvanced) "上級者向け（閉じる）" else "上級者向け（タップで開く）", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Palette.Purple)
+                            }
+                            if (!showAdvanced) return@forEach
+                            Text("文の中に {date} {time} {weekday} {battery} と書くと、実行した時の日時や電池に置き換わるよ", color = Palette.InkSoft, fontSize = 13.sp)
+                        } else {
+                            Text(g, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Palette.InkSoft)
+                        }
                         ActionType.values().filter { it.group == g }.forEach { a ->
                             val selected = actionNames.contains(a.name)
                             Box(Modifier.fillMaxWidth().pressable { onToggleAction(a.name) }.glass(20, if (selected) Palette.OrangeBg else Palette.GlassCard).padding(16.dp)) {
@@ -1038,6 +1105,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                             ActionType.CALENDAR_ADD -> "予定のタイトル"
                             ActionType.MEMO_SAVE -> "保存するメモ"
                             ActionType.CLIPBOARD_COPY -> "コピーするテキスト"
+                            ActionType.WEB_REQUEST -> "送るURL（https://…）"
                             else -> null
                         }
                         if (fieldLabel != null) {
@@ -1049,6 +1117,15 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                                 listOf("黒", "白", "ピンク", "水色", "紫", "オレンジ").forEach { v ->
                                     val sel = (actionTexts[t.name] ?: "黒") == v
                                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Orange) else tintBrush(Palette.Line)).clickable { onActionText(t.name, v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                                }
+                            }
+                        }
+                        if (t == ActionType.REPEAT) {
+                            Text("繰り返す回数", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("2回", "3回", "5回").forEach { v ->
+                                    val sel = (actionTexts[t.name] ?: "2回") == v
+                                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Purple) else tintBrush(Palette.Line)).clickable { onActionText(t.name, v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
                                 }
                             }
                         }
@@ -1074,6 +1151,15 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                         }
                     }
                     Text("平日だけ＝月〜金／夜だけ＝21時〜朝6時", color = Palette.InkSoft, fontSize = 13.sp)
+                    if (constraintName == ConstraintType.BATTERY_ABOVE.name) {
+                        Text("何%以上で実行する？", color = Palette.Ink, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("50", "80", "100").forEach { v ->
+                                val sel = (constraintParam.ifBlank { "50" }) == v
+                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Purple) else tintBrush(Palette.Line)).clickable { onConstraintParam(v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text("${v}%", color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                            }
+                        }
+                    }
                     val t = TriggerType.valueOf(triggerName)
                     val items = ActionType.values().filter { actionNames.contains(it.name) }.map { at -> ActionItem(at, if (at == ActionType.LAUNCH_APP) launchParam else "") }
                     Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {

@@ -20,6 +20,9 @@ import android.view.KeyEvent
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
@@ -80,6 +83,47 @@ object Engine {
                 ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
             if (loc != null) loc.latitude to loc.longitude else null
         } catch (e: Exception) { null }
+    }
+
+    fun batteryLevel(context: Context): Int {
+        val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return 100
+        val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, 100)
+        val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+        return if (scale > 0) level * 100 / scale else level
+    }
+
+    fun isCharging(context: Context): Boolean {
+        val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return false
+        val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
+        return plugged == BatteryManager.BATTERY_PLUGGED_AC || plugged == BatteryManager.BATTERY_PLUGGED_USB || plugged == BatteryManager.BATTERY_PLUGGED_WIRELESS
+    }
+
+    fun isWifiConnected(context: Context): Boolean {
+        return try {
+            val cm = context.getSystemService(ConnectivityManager::class.java)
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+            caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
+        } catch (e: Exception) { false }
+    }
+
+    // Webリクエスト（GET）。メインスレッドからでも詰まらないよう別スレッドで送る
+    private fun sendWebRequest(rawUrl: String): Boolean {
+        var ok = false
+        val latch = CountDownLatch(1)
+        Thread {
+            try {
+                val url = rawUrl.trim().let { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" }
+                val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 5000; conn.readTimeout = 5000
+                conn.setRequestProperty("User-Agent", "Kikkake")
+                val code = conn.responseCode
+                ok = code in 200..399
+                conn.disconnect()
+            } catch (e: Exception) { ok = false }
+            latch.countDown()
+        }.start()
+        try { latch.await(7, TimeUnit.SECONDS) } catch (e: Exception) { }
+        return ok
     }
 
     fun hasCalendarPermission(context: Context): Boolean =
@@ -161,9 +205,23 @@ object Engine {
             })
             return ExecResult.BLOCKED_BY_CONSTRAINT
         }
+        if (!ignoreConstraint) {
+            val advFail = when (macro.constraintType) {
+                ConstraintType.BATTERY_ABOVE -> if (batteryLevel(context) >= (macro.constraintParam.toIntOrNull() ?: 50)) null else "電池が${macro.constraintParam}%以上の条件に合わなかった"
+                ConstraintType.WIFI_ON -> if (isWifiConnected(context)) null else "ネット接続中の条件に合わなかった"
+                ConstraintType.CHARGING -> if (isCharging(context)) null else "充電中の条件に合わなかった"
+                else -> null
+            }
+            if (advFail != null) { recordRun(context, macro, false, advFail); return ExecResult.BLOCKED_BY_CONSTRAINT }
+        }
         var anyOk = false
         var blocked = false
-        for (item in macro.actions) {
+        val varDate = java.text.SimpleDateFormat("yyyy/MM/dd", Locale.JAPAN).format(java.util.Date())
+        val varTime = java.text.SimpleDateFormat("HH:mm", Locale.JAPAN).format(java.util.Date())
+        val varWeekday = listOf("", "日", "月", "火", "水", "木", "金", "土")[cal.get(Calendar.DAY_OF_WEEK)]
+        val varBattery = batteryLevel(context)
+        for (raw in Logic.expandRepeats(macro.actions)) {
+            val item = raw.copy(param = Logic.expandVars(raw.param, varDate, varTime, varWeekday, varBattery))
             when (item.type) {
                 ActionType.NOTIFICATION -> {
                     if (!hasNotificationPermission(context)) { blocked = true } else {
@@ -389,6 +447,10 @@ object Engine {
                         Thread.sleep(sec * 1000); anyOk = true
                     } catch (e: Exception) { }
                 }
+                ActionType.WEB_REQUEST -> {
+                    if (sendWebRequest(item.param)) anyOk = true else blocked = true
+                }
+                ActionType.REPEAT -> { } // 展開済みなのでここには来ない
             }
         }
         if (blocked && !anyOk) Toast.makeText(context, "許可が足りない動作があります。ホームの「権限チェック」から許可してね", Toast.LENGTH_LONG).show()

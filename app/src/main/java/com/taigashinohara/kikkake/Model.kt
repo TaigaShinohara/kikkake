@@ -6,6 +6,7 @@ enum class TriggerType(val icon: String, val label: String, val detail: String, 
     LOCATION("📍", "場所", "着いたら／離れたら", "場所"),
     WIFI_CONNECTED("📶", "Wi-Fi", "家に着いたときなど", "つながり"),
     BLUETOOTH("🔷", "Bluetooth", "機器がつながったら", "つながり"),
+    NFC("🏷️", "NFCタグ", "アプリを開いてタグをかざす", "つながり"),
     HEADSET("🎧", "ヘッドホン", "有線のみ", "つながり"),
     CHARGING_START("🔌", "充電開始", "", "充電・電池"),
     CHARGING_DONE("✅", "ケーブルを抜いたら", "充電中でも、抜けば動く", "充電・電池"),
@@ -51,13 +52,16 @@ enum class ActionType(val icon: String, val label: String, val detail: String, v
     LOCATION_NOTIFY("📍", "現在地を知らせる", "通知で出す", "記録する"),
     WEATHER_NOTIFY("🌤️", "天気を知らせる", "通知で出す", "記録する"),
     WAIT("⏱️", "少し待つ", "次の動作まで間をあける", "その他"),
+    WEB_REQUEST("📡", "Webに送る", "URLへGET送信（上級者向け）", "上級者向け"),
+    REPEAT("🔁", "直前を繰り返す", "直前の動作をもう何回か（上級者向け）", "上級者向け"),
     LAUNCH_APP("🚀", "アプリを起動する", "", "その他")
 }
 
-val ActionGroups = listOf("知らせる", "音", "画面・ライト", "設定を変える", "送る・開く", "記録する", "その他")
+val ActionGroups = listOf("知らせる", "音", "画面・ライト", "設定を変える", "送る・開く", "記録する", "その他", "上級者向け")
 
 enum class ConstraintType(val label: String) {
-    NONE("条件なし"), WEEKDAY("平日だけ"), NIGHT("夜だけ")
+    NONE("条件なし"), WEEKDAY("平日だけ"), NIGHT("夜だけ"),
+    BATTERY_ABOVE("電池が◯%以上のとき"), WIFI_ON("ネット接続中だけ"), CHARGING("充電中だけ")
 }
 
 data class ActionItem(val type: ActionType, val param: String = "")
@@ -69,11 +73,29 @@ data class Macro(
     val triggerParam: String = "",
     val actions: List<ActionItem> = listOf(ActionItem(ActionType.NOTIFICATION)),
     val constraintType: ConstraintType = ConstraintType.NONE,
+    val constraintParam: String = "",
     val enabled: Boolean = true,
     val lastRunAt: Long = 0L
 )
 
 object Logic {
+    // 変数タグの展開（上級者向け）：{date} {time} {weekday} {battery}
+    fun expandVars(text: String, date: String, time: String, weekday: String, battery: Int): String =
+        text.replace("{date}", date).replace("{time}", time).replace("{weekday}", weekday).replace("{battery}", battery.toString())
+
+    // 「直前を繰り返す」を実際の並びに展開する（REPEAT 自体は消える。先頭の REPEAT は無効）
+    fun expandRepeats(actions: List<ActionItem>): List<ActionItem> {
+        val out = mutableListOf<ActionItem>()
+        for (a in actions) {
+            if (a.type == ActionType.REPEAT) {
+                val prev = out.lastOrNull() ?: continue
+                val n = when (a.param) { "2回" -> 2; "3回" -> 3; "5回" -> 5; else -> 2 }
+                repeat(n) { out.add(prev) }
+            } else out.add(a)
+        }
+        return out
+    }
+
     fun autoName(trigger: TriggerType, actions: List<ActionItem>): String {
         if (actions.isEmpty()) return trigger.label
         val first = actions.first().type.label
@@ -103,7 +125,7 @@ object Logic {
         val a = m.actions.joinToString("＋") { item ->
             when {
                 item.type == ActionType.LAUNCH_APP && item.param.isNotBlank() -> "${item.type.label}（${item.param.substringAfterLast('.')}）"
-                (item.type == ActionType.NOTIFICATION || item.type == ActionType.SPEAK || item.type == ActionType.OPEN_URL || item.type == ActionType.SHARE_TEXT || item.type == ActionType.SMS_COMPOSE || item.type == ActionType.CALENDAR_ADD || item.type == ActionType.MEMO_SAVE || item.type == ActionType.CLIPBOARD_COPY || item.type == ActionType.WALLPAPER || item.type == ActionType.WAIT) && item.param.isNotBlank() -> "${item.type.label}（${item.param}）"
+                (item.type == ActionType.NOTIFICATION || item.type == ActionType.SPEAK || item.type == ActionType.OPEN_URL || item.type == ActionType.SHARE_TEXT || item.type == ActionType.SMS_COMPOSE || item.type == ActionType.CALENDAR_ADD || item.type == ActionType.MEMO_SAVE || item.type == ActionType.CLIPBOARD_COPY || item.type == ActionType.WALLPAPER || item.type == ActionType.WAIT || item.type == ActionType.WEB_REQUEST || item.type == ActionType.REPEAT) && item.param.isNotBlank() -> "${item.type.label}（${item.param}）"
                 else -> item.type.label
             }
         }
@@ -154,6 +176,8 @@ object Logic {
         ConstraintType.NONE -> true
         ConstraintType.WEEKDAY -> dayOfWeek in 2..6
         ConstraintType.NIGHT -> hour >= 21 || hour < 6
+        // 電池・ネット・充電の条件は端末状態が要るので Engine 側で判定する（ここでは通す）
+        ConstraintType.BATTERY_ABOVE, ConstraintType.WIFI_ON, ConstraintType.CHARGING -> true
     }
 
     fun batteryCrossed(prev: Int, now: Int, threshold: Int): Boolean = prev > threshold && now <= threshold
