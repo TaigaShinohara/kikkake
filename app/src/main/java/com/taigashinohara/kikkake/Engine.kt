@@ -120,7 +120,7 @@ object Engine {
                 }
                 ActionType.BRIGHTNESS_UP -> {
                     if (!canWriteSettings(context)) { blocked = true } else {
-                        try { Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 140); anyOk = true } catch (e: Exception) { blocked = true }
+                        try { Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL); Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 140); anyOk = true } catch (e: Exception) { blocked = true }
                     }
                 }
                 ActionType.SILENT_OFF -> {
@@ -131,7 +131,7 @@ object Engine {
                 }
                 ActionType.BRIGHTNESS_DOWN -> {
                     if (!canWriteSettings(context)) { blocked = true } else {
-                        try { Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 30); anyOk = true } catch (e: Exception) { blocked = true }
+                        try { Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL); Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 30); anyOk = true } catch (e: Exception) { blocked = true }
                     }
                 }
                 ActionType.SILENT -> {
