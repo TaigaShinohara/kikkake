@@ -1,2 +1,2 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources><string name="app_name">きっかけ</string></resources>
+<resources><string name="app_name">きっかけ</string><string name="widget_desc">きっかけのメッセージを表示します</string></resources>

@@ -27,7 +27,10 @@ enum class ActionType(val icon: String, val label: String, val detail: String, v
     SPEAK("🗣️", "声で知らせる", "好きな文を声で", "知らせる"),
     RING("📣", "音を鳴らす", "通知音", "知らせる"),
     VIBRATE("📳", "バイブする", "", "知らせる"),
+    WIDGET_SET("🧩", "ウィジェットに表示", "ホーム画面の文字を変える", "知らせる"),
+    AI_ASK("🤖", "AIに聞く", "答えを通知で知らせる", "AI"),
     MEDIA_PLAY_PAUSE("🎵", "音楽を再生／停止", "", "音"),
+    MUSIC_PLAY("▶️", "音楽を再生", "止まっていたら再生する", "音"),
     MEDIA_NEXT("⏭️", "次の曲へ", "", "音"),
     VOLUME_UP("🔊", "音量を上げる", "メディアの音量", "音"),
     VOLUME_DOWN("🔉", "音量を下げる", "メディアの音量", "音"),
@@ -40,10 +43,14 @@ enum class ActionType(val icon: String, val label: String, val detail: String, v
     FLASHLIGHT("🔦", "ライト", "", "画面・ライト"),
     ROTATE_OFF("📐", "画面回転を固定", "自動回転をオフ", "設定を変える"),
     ROTATE_ON("🔄", "画面回転を自動に", "", "設定を変える"),
+    SCREEN_KEEP("💡", "画面を消さない", "自動消灯オフ／戻す（切替）", "設定を変える"),
     WALLPAPER("🖼️", "壁紙を変える", "単色から選ぶ", "設定を変える"),
     WIFI_PANEL("🌐", "Wi-Fi設定を開く", "", "設定を変える"),
     BT_SETTINGS("🔷", "Bluetooth設定を開く", "", "設定を変える"),
     OPEN_URL("🔗", "URLを開く", "", "送る・開く"),
+    VIDEO_PLAY("🎬", "動画を再生", "リンク先の動画を開く", "送る・開く"),
+    PLAYLIST_PLAY("🎶", "プレイリストを再生", "リンク先を開く", "送る・開く"),
+    CAMERA_OPEN("📷", "カメラを開く", "撮影はシャッターを押してね", "送る・開く"),
     SHARE_TEXT("📤", "テキストを共有", "", "送る・開く"),
     SMS_COMPOSE("📩", "メッセージ作成を開く", "", "送る・開く"),
     CALENDAR_ADD("📅", "予定を追加", "今から1時間", "記録する"),
@@ -54,10 +61,12 @@ enum class ActionType(val icon: String, val label: String, val detail: String, v
     WAIT("⏱️", "少し待つ", "次の動作まで間をあける", "その他"),
     WEB_REQUEST("📡", "Webに送る", "URLへGET送信（上級者向け）", "上級者向け"),
     REPEAT("🔁", "直前を繰り返す", "直前の動作をもう何回か（上級者向け）", "上級者向け"),
+    COMMAND_RUN("⌨️", "コマンド実行", "シェルのコマンドを動かす（上級者向け）", "上級者向け"),
+    JS_RUN("📜", "JavaScript実行", "結果を通知で出す（上級者向け）", "上級者向け"),
     LAUNCH_APP("🚀", "アプリを起動する", "", "その他")
 }
 
-val ActionGroups = listOf("知らせる", "音", "画面・ライト", "設定を変える", "送る・開く", "記録する", "その他", "上級者向け")
+val ActionGroups = listOf("知らせる", "AI", "音", "画面・ライト", "設定を変える", "送る・開く", "記録する", "その他", "上級者向け")
 
 enum class ConstraintType(val label: String) {
     NONE("条件なし"), WEEKDAY("平日だけ"), NIGHT("夜だけ"),
@@ -79,9 +88,9 @@ data class Macro(
 )
 
 object Logic {
-    // 変数タグの展開（上級者向け）：{date} {time} {weekday} {battery}
-    fun expandVars(text: String, date: String, time: String, weekday: String, battery: Int): String =
-        text.replace("{date}", date).replace("{time}", time).replace("{weekday}", weekday).replace("{battery}", battery.toString())
+    // 変数タグの展開（上級者向け）：{date} {time} {weekday} {battery} {ai}
+    fun expandVars(text: String, date: String, time: String, weekday: String, battery: Int, ai: String = ""): String =
+        text.replace("{date}", date).replace("{time}", time).replace("{weekday}", weekday).replace("{battery}", battery.toString()).replace("{ai}", ai)
 
     // 「直前を繰り返す」を実際の並びに展開する（REPEAT 自体は消える。先頭の REPEAT は無効）
     fun expandRepeats(actions: List<ActionItem>): List<ActionItem> {
@@ -125,7 +134,7 @@ object Logic {
         val a = m.actions.joinToString("＋") { item ->
             when {
                 item.type == ActionType.LAUNCH_APP && item.param.isNotBlank() -> "${item.type.label}（${item.param.substringAfterLast('.')}）"
-                (item.type == ActionType.NOTIFICATION || item.type == ActionType.SPEAK || item.type == ActionType.OPEN_URL || item.type == ActionType.SHARE_TEXT || item.type == ActionType.SMS_COMPOSE || item.type == ActionType.CALENDAR_ADD || item.type == ActionType.MEMO_SAVE || item.type == ActionType.CLIPBOARD_COPY || item.type == ActionType.WALLPAPER || item.type == ActionType.WAIT || item.type == ActionType.WEB_REQUEST || item.type == ActionType.REPEAT) && item.param.isNotBlank() -> "${item.type.label}（${item.param}）"
+                (item.type == ActionType.NOTIFICATION || item.type == ActionType.SPEAK || item.type == ActionType.OPEN_URL || item.type == ActionType.SHARE_TEXT || item.type == ActionType.SMS_COMPOSE || item.type == ActionType.CALENDAR_ADD || item.type == ActionType.MEMO_SAVE || item.type == ActionType.CLIPBOARD_COPY || item.type == ActionType.WALLPAPER || item.type == ActionType.WAIT || item.type == ActionType.WEB_REQUEST || item.type == ActionType.REPEAT || item.type == ActionType.AI_ASK || item.type == ActionType.VIDEO_PLAY || item.type == ActionType.PLAYLIST_PLAY || item.type == ActionType.WIDGET_SET) && item.param.isNotBlank() -> "${item.type.label}（${item.param}）"
                 else -> item.type.label
             }
         }

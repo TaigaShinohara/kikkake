@@ -11,8 +11,8 @@ android {
         applicationId = "com.taigashinohara.kikkake"
         minSdk = 26
         targetSdk = 36
-        versionCode = 29
-        versionName = "2.1.0"
+        versionCode = 30
+        versionName = "2.2.0"
     }
     signingConfigs {
         val ksFile = rootProject.file(".local/kikkake-debug.jks")
@@ -59,5 +59,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("androidx.core:core-ktx:1.15.0")
+    // 端末内AI（Gemini Nano）への質問用。対応端末でのみ動く
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
+    // JavaScript実行用（解釈モードで動かす）
+    implementation("org.mozilla:rhino:1.7.15")
     testImplementation("junit:junit:4.13.2")
 }

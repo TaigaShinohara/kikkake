@@ -251,6 +251,8 @@ fun KikkakeApp() {
     var permGuide by remember { mutableStateOf<Macro?>(null) }
     var showImport by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
+    var showAiSettings by remember { mutableStateOf(false) }
+    var aiKeyInput by remember { mutableStateOf("") }
     var wConstraint by rememberSaveable { mutableStateOf(ConstraintType.NONE.name) }
     var wName by rememberSaveable { mutableStateOf("") }
     var wStep by rememberSaveable { mutableIntStateOf(1) }
@@ -264,7 +266,7 @@ fun KikkakeApp() {
             wLaunchParam = m.actions.firstOrNull { it.type == ActionType.LAUNCH_APP }?.param ?: ""
             wNotifParam = m.actions.firstOrNull { it.type == ActionType.NOTIFICATION }?.param ?: ""
             wSpeakParam = m.actions.firstOrNull { it.type == ActionType.SPEAK }?.param ?: ""
-            wActionTexts = m.actions.filter { it.type == ActionType.OPEN_URL || it.type == ActionType.SHARE_TEXT || it.type == ActionType.SMS_COMPOSE || it.type == ActionType.CALENDAR_ADD || it.type == ActionType.MEMO_SAVE || it.type == ActionType.CLIPBOARD_COPY || it.type == ActionType.WALLPAPER || it.type == ActionType.WAIT || it.type == ActionType.WEB_REQUEST || it.type == ActionType.REPEAT }.associate { it.type.name to it.param }
+            wActionTexts = m.actions.filter { it.type == ActionType.OPEN_URL || it.type == ActionType.SHARE_TEXT || it.type == ActionType.SMS_COMPOSE || it.type == ActionType.CALENDAR_ADD || it.type == ActionType.MEMO_SAVE || it.type == ActionType.CLIPBOARD_COPY || it.type == ActionType.WALLPAPER || it.type == ActionType.WAIT || it.type == ActionType.WEB_REQUEST || it.type == ActionType.REPEAT || it.type == ActionType.AI_ASK || it.type == ActionType.VIDEO_PLAY || it.type == ActionType.PLAYLIST_PLAY || it.type == ActionType.WIDGET_SET || it.type == ActionType.COMMAND_RUN || it.type == ActionType.JS_RUN }.associate { it.type.name to it.param }
             wConstraintParam = m.constraintParam
             wConstraint = m.constraintType.name; wName = m.name
         } else {
@@ -319,7 +321,7 @@ fun KikkakeApp() {
             onBack = { if (wStep > 1) wStep-- else screen = "home" },
             onSave = {
                 val t = TriggerType.valueOf(wTrigger)
-                val items = ActionType.values().filter { wActions.contains(it.name) }.map { at -> ActionItem(at, when (at) { ActionType.LAUNCH_APP -> wLaunchParam; ActionType.NOTIFICATION -> wNotifParam; ActionType.SPEAK -> wSpeakParam; ActionType.OPEN_URL, ActionType.SHARE_TEXT, ActionType.SMS_COMPOSE, ActionType.CALENDAR_ADD, ActionType.MEMO_SAVE, ActionType.CLIPBOARD_COPY, ActionType.WALLPAPER, ActionType.WAIT, ActionType.WEB_REQUEST, ActionType.REPEAT -> wActionTexts[at.name] ?: ""; else -> "" }) }
+                val items = ActionType.values().filter { wActions.contains(it.name) }.map { at -> ActionItem(at, when (at) { ActionType.LAUNCH_APP -> wLaunchParam; ActionType.NOTIFICATION -> wNotifParam; ActionType.SPEAK -> wSpeakParam; ActionType.OPEN_URL, ActionType.SHARE_TEXT, ActionType.SMS_COMPOSE, ActionType.CALENDAR_ADD, ActionType.MEMO_SAVE, ActionType.CLIPBOARD_COPY, ActionType.WALLPAPER, ActionType.WAIT, ActionType.WEB_REQUEST, ActionType.REPEAT, ActionType.AI_ASK, ActionType.VIDEO_PLAY, ActionType.PLAYLIST_PLAY, ActionType.WIDGET_SET, ActionType.COMMAND_RUN, ActionType.JS_RUN -> wActionTexts[at.name] ?: ""; else -> "" }) }
                 val nm = wName.ifBlank { Logic.autoName(t, items) }
                 if (editingId > 0) {
                     val old = macros.find { it.id == editingId }
@@ -370,6 +372,27 @@ fun KikkakeApp() {
                 }) { Text("読み込む") }
             },
             dismissButton = { TextButton(onClick = { showImport = false }) { Text("やめる") } }
+        )
+    }
+    if (showAiSettings) {
+        AlertDialog(
+            onDismissRequest = { showAiSettings = false },
+            title = { Text("AIに聞く の設定") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("対応する端末では、端末の中のAI（Gemini Nano）がキーなしで答えます。使えない端末では、下のキーで Gemini API に聞きます。", fontSize = 14.sp)
+                    OutlinedTextField(value = aiKeyInput, onValueChange = { aiKeyInput = it }, label = { Text("Gemini APIキー（任意）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(16.dp))
+                    Text("キーはこの端末の中だけに保存されます。", fontSize = 12.sp, color = Palette.InkSoft)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    StateStore(context).aiApiKey = aiKeyInput.trim()
+                    showAiSettings = false
+                    scope.launch { snackbarHost.showSnackbar("保存したよ") }
+                }) { Text("保存する") }
+            },
+            dismissButton = { TextButton(onClick = { showAiSettings = false }) { Text("やめる") } }
         )
     }
 
@@ -452,6 +475,16 @@ fun KikkakeApp() {
             }
             item { RunLogSection(stateStore.runLog) }
             item { PermissionSection(resumeTick, macros) }
+            item {
+                val keySet = remember(resumeTick) { StateStore(context).aiApiKey.isNotBlank() }
+                Column(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("AIに聞く の設定", fontWeight = FontWeight.Bold, color = Palette.Ink, fontSize = 16.sp)
+                    Text(if (keySet) "APIキーは設定済み。端末内AIを優先して使います。" else "端末内AI（対応端末のみ）が使えます。APIキーを入れると、非対応の端末でもAIに聞けます。", color = Palette.InkSoft, fontSize = 13.sp)
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.Purple)).pressable { aiKeyInput = StateStore(context).aiApiKey; showAiSettings = true }.padding(horizontal = 16.dp, vertical = 9.dp)) {
+                        Text("設定する", color = Palette.Purple, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                }
+            }
             item {
                 var expanded by remember { mutableStateOf(false) }
                 val showAll = macros.isEmpty() || expanded
@@ -761,7 +794,7 @@ fun missingPermKeys(context: Context, macros: List<Macro>): Set<String> {
     val keys = mutableSetOf<String>()
     if (macros.any { m -> m.actions.any { it.type == ActionType.NOTIFICATION } } && !Engine.hasNotificationPermission(context)) keys += "notif"
     if (macros.any { m -> m.actions.any { it.type == ActionType.SILENT || it.type == ActionType.SILENT_OFF || it.type == ActionType.DND_ON || it.type == ActionType.DND_OFF } } && !Engine.hasDndAccess(context)) keys += "dnd"
-    if (macros.any { m -> m.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP || it.type == ActionType.ROTATE_OFF || it.type == ActionType.ROTATE_ON } } && !Engine.canWriteSettings(context)) keys += "write"
+    if (macros.any { m -> m.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP || it.type == ActionType.ROTATE_OFF || it.type == ActionType.ROTATE_ON || it.type == ActionType.SCREEN_KEEP } } && !Engine.canWriteSettings(context)) keys += "write"
     if (macros.any { it.trigger == TriggerType.TIME } && !Engine.canExactAlarm(context)) keys += "exact"
     if (macros.any { it.trigger == TriggerType.APP_LAUNCH } && !Engine.hasUsageAccess(context)) keys += "usage"
     if (macros.any { it.trigger == TriggerType.APP_CLOSED } && !Engine.hasUsageAccess(context)) keys += "usage"
@@ -1106,6 +1139,12 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                             ActionType.MEMO_SAVE -> "保存するメモ"
                             ActionType.CLIPBOARD_COPY -> "コピーするテキスト"
                             ActionType.WEB_REQUEST -> "送るURL（https://…）"
+                            ActionType.AI_ASK -> "AIへの質問"
+                            ActionType.VIDEO_PLAY -> "動画のURL"
+                            ActionType.PLAYLIST_PLAY -> "プレイリストのURL"
+                            ActionType.WIDGET_SET -> "表示する文字"
+                            ActionType.COMMAND_RUN -> "コマンド"
+                            ActionType.JS_RUN -> "JavaScript"
                             else -> null
                         }
                         if (fieldLabel != null) {

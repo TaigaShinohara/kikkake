@@ -138,4 +138,19 @@ class StateStore(context: Context) {
     var lastFgPkg: String
         get() = prefs.getString("lastFgPkg", "") ?: ""
         set(v) = prefs.edit().putString("lastFgPkg", v).apply()
+    // AIに聞く：APIキー（端末内AIが使えない時の予備）と直近の答え（{ai} 変数用）
+    var aiApiKey: String
+        get() = prefs.getString("aiApiKey", "") ?: ""
+        set(v) = prefs.edit().putString("aiApiKey", v).apply()
+    var lastAiResponse: String
+        get() = prefs.getString("lastAiResponse", "") ?: ""
+        set(v) = prefs.edit().putString("lastAiResponse", v).apply()
+    // ホーム画面ウィジェットに表示する文字
+    var widgetText: String
+        get() = prefs.getString("widgetText", "") ?: ""
+        set(v) = prefs.edit().putString("widgetText", v).apply()
+    // 画面を消さない の解除時に戻す元の消灯時間（ミリ秒、-1=未保存）
+    var screenTimeoutPrev: Int
+        get() = prefs.getInt("screenTimeoutPrev", -1)
+        set(v) = prefs.edit().putInt("screenTimeoutPrev", v).apply()
 }

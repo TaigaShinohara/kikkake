@@ -126,6 +126,139 @@ object Engine {
         return ok
     }
 
+    private data class AiOutcome(val answer: String?, val note: String?)
+
+    // AIに聞く：端末内AI（Gemini Nano）→ ダメなら APIキーで Gemini API、の順に試す
+    private fun askAi(context: Context, prompt: String): AiOutcome {
+        val dev = askOnDeviceAi(prompt)
+        if (dev.answer != null) return dev
+        val key = StateStore(context).aiApiKey
+        if (key.isNotBlank()) {
+            val api = askApiAi(key, prompt)
+            if (api.answer != null) return api
+        }
+        return dev
+    }
+
+    private fun askOnDeviceAi(prompt: String): AiOutcome {
+        return try {
+            kotlinx.coroutines.runBlocking {
+                val model = com.google.mlkit.genai.prompt.Generation.getClient()
+                when (model.checkStatus()) {
+                    com.google.mlkit.genai.common.FeatureStatus.AVAILABLE -> {
+                        val text = model.generateContent(prompt).candidates.firstOrNull()?.text?.trim()
+                        AiOutcome(if (text.isNullOrBlank()) null else text, null)
+                    }
+                    com.google.mlkit.genai.common.FeatureStatus.DOWNLOADABLE -> {
+                        Thread { try { kotlinx.coroutines.runBlocking { model.download().collect { } } } catch (e: Exception) { } }.start()
+                        AiOutcome(null, "AIモデルをダウンロード中")
+                    }
+                    else -> AiOutcome(null, null)
+                }
+            }
+        } catch (e: Exception) { AiOutcome(null, null) }
+    }
+
+    // Gemini API（キーが必要）。ホームの「AIに聞く の設定」でキーを入れる
+    private fun askApiAi(apiKey: String, prompt: String): AiOutcome {
+        var result = AiOutcome(null, null)
+        val latch = CountDownLatch(1)
+        Thread {
+            try {
+                val conn = java.net.URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent").openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.connectTimeout = 10000; conn.readTimeout = 30000
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.setRequestProperty("x-goog-api-key", apiKey)
+                val body = org.json.JSONObject().apply {
+                    put("contents", org.json.JSONArray().put(org.json.JSONObject().apply {
+                        put("parts", org.json.JSONArray().put(org.json.JSONObject().put("text", prompt)))
+                    }))
+                }.toString()
+                conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val text = stream?.bufferedReader()?.readText() ?: ""
+                if (code in 200..299) {
+                    val parsed = org.json.JSONObject(text).optJSONArray("candidates")?.optJSONObject(0)
+                        ?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")?.trim()
+                    if (!parsed.isNullOrBlank()) result = AiOutcome(parsed, null)
+                }
+                conn.disconnect()
+            } catch (e: Exception) { }
+            latch.countDown()
+        }.start()
+        try { latch.await(35, TimeUnit.SECONDS) } catch (e: Exception) { }
+        return result
+    }
+
+    // コマンド実行（上級者向け）：/system/bin/sh で動かし、出力を返す。起動自体に失敗したら null
+    private fun runShellCommand(rawCmd: String): String? {
+        if (rawCmd.isBlank()) return null
+        return try {
+            val proc = ProcessBuilder("/system/bin/sh", "-c", rawCmd).redirectErrorStream(true).start()
+            val sb = StringBuilder()
+            val reader = Thread {
+                try { proc.inputStream.bufferedReader().forEachLine { synchronized(sb) { if (sb.length < 2000) sb.append(it).append('\n') } } } catch (e: Exception) { }
+            }
+            reader.start()
+            if (!proc.waitFor(15, TimeUnit.SECONDS)) {
+                proc.destroyForcibly(); "時間切れ（15秒で止めました）"
+            } else {
+                try { reader.join(1000) } catch (e: Exception) { }
+                val text = sb.toString().trim()
+                when {
+                    text.isNotBlank() -> text.take(1000)
+                    proc.exitValue() != 0 -> "コマンドがエラーで終わりました（コード ${proc.exitValue()}）"
+                    else -> "（出力なし）"
+                }
+            }
+        } catch (e: Exception) { null }
+    }
+
+    // JavaScript実行（上級者向け）：Rhino の解釈モードで動かし、print と最後の値を返す
+    private fun runJavaScript(script: String): String {
+        if (script.isBlank()) return "（スクリプトが空です）"
+        val out = StringBuilder()
+        var entered = false
+        return try {
+            val cx = org.mozilla.javascript.Context.enter(); entered = true
+            cx.optimizationLevel = -1
+            cx.languageVersion = org.mozilla.javascript.Context.VERSION_ES6
+            val scope = cx.initStandardObjects()
+            val printFn = object : org.mozilla.javascript.Callable {
+                override fun call(c: org.mozilla.javascript.Context, s: org.mozilla.javascript.Scriptable, thisObj: org.mozilla.javascript.Scriptable, args: Array<Any?>): Any? {
+                    out.append(args.joinToString(" ") { org.mozilla.javascript.Context.toString(it) }).append('\n')
+                    return org.mozilla.javascript.Undefined.instance
+                }
+            }
+            org.mozilla.javascript.ScriptableObject.putProperty(scope, "print", printFn)
+            val result = cx.evaluateString(scope, script, "kikkake", 1, null)
+            val tail = if (result == null || result === org.mozilla.javascript.Undefined.instance) "" else org.mozilla.javascript.Context.toString(result)
+            val text = (out.toString() + tail).trim()
+            if (text.isBlank()) "（出力なし）" else text.take(1000)
+        } catch (e: Exception) {
+            "エラー：${e.message}".take(1000)
+        } finally {
+            if (entered) org.mozilla.javascript.Context.exit()
+        }
+    }
+
+    // 動画・プレイリストのリンクを再生アプリで開く
+    private fun openMediaUrl(context: Context, rawUrl: String, video: Boolean): Boolean {
+        val url = rawUrl.trim().let { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" }
+        if (url.length <= 8) return false
+        val uri = android.net.Uri.parse(url)
+        return try {
+            val intent = if (video) Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/*") else Intent(Intent.ACTION_VIEW, uri)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent); true
+        } catch (e: Exception) {
+            try { context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true } catch (e2: Exception) { false }
+        }
+    }
+
     fun hasCalendarPermission(context: Context): Boolean =
         ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED
 
@@ -220,8 +353,9 @@ object Engine {
         val varTime = java.text.SimpleDateFormat("HH:mm", Locale.JAPAN).format(java.util.Date())
         val varWeekday = listOf("", "日", "月", "火", "水", "木", "金", "土")[cal.get(Calendar.DAY_OF_WEEK)]
         val varBattery = batteryLevel(context)
+        var varAi = StateStore(context).lastAiResponse
         for (raw in Logic.expandRepeats(macro.actions)) {
-            val item = raw.copy(param = Logic.expandVars(raw.param, varDate, varTime, varWeekday, varBattery))
+            val item = raw.copy(param = Logic.expandVars(raw.param, varDate, varTime, varWeekday, varBattery, varAi))
             when (item.type) {
                 ActionType.NOTIFICATION -> {
                     if (!hasNotificationPermission(context)) { blocked = true } else {
@@ -449,6 +583,63 @@ object Engine {
                 }
                 ActionType.WEB_REQUEST -> {
                     if (sendWebRequest(item.param)) anyOk = true else blocked = true
+                }
+                ActionType.AI_ASK -> {
+                    if (item.param.isBlank() || !hasNotificationPermission(context)) { blocked = true } else {
+                        val ans = askAi(context, item.param).answer
+                        if (ans != null) {
+                            varAi = ans
+                            StateStore(context).lastAiResponse = ans
+                            if (postNotify(context, macro, ans)) anyOk = true else blocked = true
+                        } else blocked = true
+                    }
+                }
+                ActionType.WIDGET_SET -> {
+                    StateStore(context).widgetText = item.param
+                    KikkakeWidgetProvider.updateAll(context)
+                    anyOk = true
+                }
+                ActionType.MUSIC_PLAY -> {
+                    try {
+                        val am = context.getSystemService(AudioManager::class.java)
+                        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
+                        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
+                        anyOk = true
+                    } catch (e: Exception) { }
+                }
+                ActionType.SCREEN_KEEP -> {
+                    if (!canWriteSettings(context)) { blocked = true } else {
+                        try {
+                            val cr = context.contentResolver
+                            val cur = Settings.System.getInt(cr, Settings.System.SCREEN_OFF_TIMEOUT)
+                            val st = StateStore(context)
+                            if (cur == Int.MAX_VALUE) {
+                                Settings.System.putInt(cr, Settings.System.SCREEN_OFF_TIMEOUT, if (st.screenTimeoutPrev > 0) st.screenTimeoutPrev else 120000)
+                            } else {
+                                if (cur > 0) st.screenTimeoutPrev = cur
+                                Settings.System.putInt(cr, Settings.System.SCREEN_OFF_TIMEOUT, Int.MAX_VALUE)
+                            }
+                            anyOk = true
+                        } catch (e: Exception) { blocked = true }
+                    }
+                }
+                ActionType.VIDEO_PLAY -> { if (openMediaUrl(context, item.param, video = true)) anyOk = true else blocked = true }
+                ActionType.PLAYLIST_PLAY -> { if (openMediaUrl(context, item.param, video = false)) anyOk = true else blocked = true }
+                ActionType.CAMERA_OPEN -> {
+                    try {
+                        context.startActivity(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); anyOk = true
+                    } catch (e: Exception) { blocked = true }
+                }
+                ActionType.COMMAND_RUN -> {
+                    if (!hasNotificationPermission(context)) { blocked = true } else {
+                        val out = runShellCommand(item.param)
+                        if (out != null && postNotify(context, macro, out)) anyOk = true else blocked = true
+                    }
+                }
+                ActionType.JS_RUN -> {
+                    if (!hasNotificationPermission(context)) { blocked = true } else {
+                        if (postNotify(context, macro, runJavaScript(item.param))) anyOk = true else blocked = true
+                    }
                 }
                 ActionType.REPEAT -> { } // 展開済みなのでここには来ない
             }

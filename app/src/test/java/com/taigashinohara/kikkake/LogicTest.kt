@@ -64,6 +64,8 @@ class LogicTest {
 
     @Test fun expandVarsReplaces() {
         val out = Logic.expandVars("{date} {time} {weekday} 電池{battery}%", "2026/11/22", "07:30", "日", 85)
+        val withAi = Logic.expandVars("答えは{ai}です", "2026/11/22", "07:30", "日", 85, "晴れ")
+        assertEquals("答えは晴れです", withAi)
         assertEquals("2026/11/22 07:30 日 電池85%", out)
     }
 
