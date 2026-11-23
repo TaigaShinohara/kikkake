@@ -46,6 +46,31 @@ android {
     kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
     buildFeatures { compose = true }
     packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
+    // 実機なし検証（標準 2026-11-23）：Robolectric がアプリのリソースを読めるようにする
+    testOptions { unitTests.isIncludeAndroidResources = true }
+}
+
+// 実機なし検証の実行設定：Robolectric／Roborazzi はメモリを使うのでヒープを広げる。
+// android-all の取得方法（オフライン種まき）は run-tests.sh 側で指定する
+tasks.withType<Test>().configureEach {
+    maxHeapSize = "1536m"
+}
+
+// このVMでは Gradle の Test タスク自体が結果集計で落ちる（既知）ため、テストは JUnitCore で直接回す。
+// その実行用クラスパスを取り出すためのタスク（docs/VERIFICATION.md 参照）
+tasks.register("printUnitTestClasspath") {
+    // NOTE: Test タスクのクラスパスを inputs.files に配線すると、Gradle が testDebugUnitTest 自体を
+    // タスクグラフへ引き込み、このVMでは動かない Gradle Test Executor が走ってしまう。
+    // コンパイルタスクへだけ依存し、クラスパスは doLast で遅延読みする（QRいっき読みと同方式）。
+    // test_config.properties は、run-tests.sh が設定生成タスクをコマンドラインから明示実行して用意する
+    dependsOn("compileDebugUnitTestKotlin")
+    val testTask = tasks.named<Test>("testDebugUnitTest")
+    val out = layout.buildDirectory.file("unitTestClasspath.txt")
+    outputs.file(out)
+    doLast {
+        out.get().asFile.writeText(testTask.get().classpath.files.joinToString(File.pathSeparator) { it.absolutePath })
+        println("Wrote ${out.get().asFile.absolutePath}")
+    }
 }
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
@@ -64,4 +89,11 @@ dependencies {
     // JavaScript実行用（解釈モードで動かす）
     implementation("org.mozilla:rhino:1.7.15")
     testImplementation("junit:junit:4.13.2")
+    // 実機なし検証（標準 2026-11-23）：JVM上で画面の見た目と遷移を交付前に確かめる
+    testImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.35.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.35.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.test.ext:junit:1.2.1")
 }

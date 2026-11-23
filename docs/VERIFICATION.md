@@ -1,0 +1,62 @@
+# 実機なし検証（交付前チェック）
+
+2026-11-23 の標準化（AGENTS.md「Pre-delivery UI verification standard」）に基づく、
+きっかけの JVM 検証の正本。エミュレータの無いビルド VM でも、画面の崩壊・真っ白・
+遷移破綻を交付前に捕まえるための仕組み。
+
+## 回し方
+
+```bash
+./run-tests.sh          # 全部実行（スクショはゴールデンと照合＝verify）
+./run-tests.sh record   # 全部実行（スクショを再記録。目視確認してからゴールデンとして確定）
+```
+
+- コンパイルは Gradle（build.sh 経由＝ビルド直列化ロック適用）、実行は JUnitCore を直接叩く。
+  Gradle の Test タスクはこの VM では結果集計で落ちる（Executor のループバック通信が遮断される／
+  集計 NPE）ため使わない。通常のマシンでは `gradle :app:testDebugUnitTest` でも同じテストが回る。
+- 実行クラスパスは `:app:printUnitTestClasspath` が `app/build/unitTestClasspath.txt` へ書き出す。
+  注意：Test タスクのクラスパスを inputs.files や taskDependencies 経由で配線すると、
+  Gradle が testDebugUnitTest 自体をグラフへ引き込み Executor が走って落ちる。
+  コンパイルタスクへだけ依存し doLast で遅延読みするのが正解（QRいっき読みと同方式）。
+
+## テスト構成（全26件）
+
+| クラス | 件数 | 内容 |
+|---|---|---|
+| LogicTest | 17 | 純ロジック（従来分） |
+| ScreenFlowTest | 3 | Robolectric＋Compose テストルールで実物の KikkakeApp を描き、初回起動→オンボーディング表示／ホームのタイルと操作ラベル／ウィザード Step1→2→3 の遷移と条件チップ表示を検証 |
+| ScreenshotTest | 4 | Roborazzi ゴールデン照合：ホーム（見本マクロ2件）／オンボーディング入口／ウィザード Step1／ウィザード Step3（電池条件チップ） |
+| LargeFontScreenshotTest | 2 | 同上を fontScale 1.3 で：ホーム／ウィザード Step3 |
+
+ゴールデン画像は `app/src/test/screenshots/`（6枚）。記録したら必ず全枚目視確認する
+（崩壊・見切れ・真っ白が無いこと）。最低カバー範囲＝起動直後の画面／オンボーディング入口／
+その版で作り替えた画面、を満たす。
+
+## なぜ Paparazzi ではなく Roborazzi か
+
+当初 Paparazzi 1.3.5 で進めたが、Robolectric と同居させると Paparazzi の Renderer が
+`android.os.Build` の内部クラスを layoutlib の `_Original_Build` と突き合わせる処理
+（configureBuildProperties）で落ちる（内部クラスの顔ぶれが android-all と layoutlib で違う）。
+Roborazzi は Robolectric のネイティブグラフィクス上でそのまま撮れるため同居できる。
+方式は QRいっき読みの実績方式（captureRoboImage 直接呼び＋ゴールデン照合）に合わせた。
+
+## この VM 固有の注意
+
+- **ComponentActivity の宣言**：Compose テストルールが使う `androidx.activity.ComponentActivity` は
+  ライブラリのマニフェストに無く、Robolectric が起動できずに落ちる。`app/src/debug/AndroidManifest.xml`
+  で debug ビルドだけに宣言してある（release には含まれない）。
+- **android-all のオフライン種まき**：Robolectric の android-all は Java の直接通信では取得できない。
+  run-tests.sh がローカルミラーのディスクキャッシュから `app/build/robolectric-deps/` へコピーし、
+  `-Drobolectric.offline=true` で読ませる。キャッシュに無い環境では HTTP ミラー経由にフォールバック。
+- **java.io.tmpdir の逃がし先**：Robolectric はネイティブライブラリを tmpdir へ展開する。
+  この VM の /tmp は 512MB の tmpfs で、他プロジェクトの展開残骸と奪い合って満杯になる
+  （"No space left on device" で native runtime のロードが落ちる）。run-tests.sh は
+  `-Djava.io.tmpdir=app/build/jvmtmp` を指定してワークスペース側へ逃がしている。
+- **ビルド直列化**：コンパイルもテスト実行も with-build-lock.sh 経由（全プロジェクト同時2本まで）。
+
+## 結果（2026-11-23 初回）
+
+- record：全26件合格。ゴールデン6枚を全枚目視確認（ホーム／オンボーディング／Step1／Step3／
+  大きな文字2枚）— 崩壊・見切れ・真っ白なし。大きな文字でもタイルの「テスト」が欠けず、
+  Step3 の条件チップは FlowRow で行折り返しになることを確認（v2.2.4／v2.2.5 の事故の再発なし）。
+- verify：全26件合格（ゴールデン照合一致）。
