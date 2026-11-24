@@ -125,6 +125,10 @@ class StateStore(context: Context) {
     var trialDone: Boolean
         get() = prefs.getBoolean("trialDone", prefs.getBoolean("onboardingDone", false))
         set(v) = prefs.edit().putBoolean("trialDone", v).apply()
+    // フィードでブックマークしたテンプレの macroName 集合（v2.8.0〜）
+    var bookmarks: Set<String>
+        get() = prefs.getStringSet("bookmarks", emptySet()) ?: emptySet()
+        set(v) = prefs.edit().putStringSet("bookmarks", v).apply()
     // 端末状態のエッジ検出用（-1=未観測, 0=OFF, 1=ON）
     var stateDnd: Int
         get() = prefs.getInt("stateDnd", -1)

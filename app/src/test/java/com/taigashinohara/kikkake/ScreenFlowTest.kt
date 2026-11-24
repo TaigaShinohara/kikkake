@@ -101,6 +101,25 @@ class ScreenFlowTest {
     }
 
     @Test
+    fun feedCard_expand_showsFlow() {
+        // v2.8.0：仕組み（フローのチップ列）は畳まれていて、タップで開く
+        setApp(onboardingDone = true, withMacros = false)
+        rule.onNodeWithText("アプリを開いたら", substring = true).assertDoesNotExist()
+        rule.onAllNodesWithText("仕組みを見る", substring = true)[0].performClick()
+        rule.onNodeWithText("アプリを開いたら", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun bookmark_saveAndReview() {
+        // v2.8.0：カードの 🔖 で保存し、ブックマーク画面で見返せる
+        setApp(onboardingDone = true, withMacros = false)
+        rule.onAllNodesWithText("🔖")[0].performClick()
+        rule.onNodeWithText("ブックマーク", substring = true).performClick()
+        rule.onNodeWithText("動画の見すぎストッパー").assertIsDisplayed()
+        rule.onNodeWithText("1件").assertIsDisplayed()
+    }
+
+    @Test
     fun feed_useTemplate_addsMacroToMySet() {
         setApp(onboardingDone = true, withMacros = true)
         // v2.6.0：起動直後がフィード（ホーム）そのもの

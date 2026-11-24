@@ -222,6 +222,13 @@ fun KikkakeApp() {
     var trialDone by remember { mutableStateOf(stateStore.trialDone) }
     var tryNowId by remember { mutableStateOf(-1L) }
     var showMoreSettings by remember { mutableStateOf(false) }
+    // フィードのブックマーク（テンプレの macroName の集合、v2.8.0）
+    var bookmarks by remember { mutableStateOf(stateStore.bookmarks) }
+    val toggleBookmark: (Template) -> Unit = { t ->
+        val next = if (t.macroName in bookmarks) bookmarks - t.macroName else bookmarks + t.macroName
+        bookmarks = next
+        stateStore.bookmarks = next
+    }
     var resumeTick by remember { mutableIntStateOf(0) }
     var highlightId by remember { mutableStateOf(-1L) }
     var pickerTarget by rememberSaveable { mutableStateOf("") }
@@ -412,6 +419,28 @@ fun KikkakeApp() {
         )
     }
 
+    // テンプレを自分の自動化にする共通処理（フィード／ブックマーク画面で共用）
+    val useTemplate: (Template) -> Unit = { t ->
+        if (macros.any { it.name == t.macroName }) {
+            Toast.makeText(context, "「${t.macroName}」はもうあるよ", Toast.LENGTH_SHORT).show()
+        } else {
+            val m = Macro(id = System.currentTimeMillis() + t.title.hashCode(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
+            addMacro(m, "追加したよ！「${t.macroName}」")
+            screen = "home"
+        }
+    }
+
+    if (screen == "bookmarks") {
+        BookmarksScreen(
+            macros = macros,
+            bookmarks = bookmarks,
+            onUse = useTemplate,
+            onToggleBookmark = toggleBookmark,
+            onBack = { screen = "feed" }
+        )
+        return
+    }
+
     if (screen == "feed") {
         // フィードがホーム。戻るはアプリ終了に任せる（BackHandler は置かない）
         FeedScreen(
@@ -429,16 +458,11 @@ fun KikkakeApp() {
                 }
             },
             onTrialSkip = { stateStore.trialDone = true; trialDone = true },
-            onUse = { t ->
-                if (macros.any { it.name == t.macroName }) {
-                    Toast.makeText(context, "「${t.macroName}」はもうあるよ", Toast.LENGTH_SHORT).show()
-                } else {
-                    val m = Macro(id = System.currentTimeMillis() + t.title.hashCode(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
-                    addMacro(m, "追加したよ！「${t.macroName}」")
-                    screen = "home"
-                }
-            },
-            onOpenMySet = { screen = "home" }
+            onUse = useTemplate,
+            onOpenMySet = { screen = "home" },
+            bookmarks = bookmarks,
+            onToggleBookmark = toggleBookmark,
+            onOpenBookmarks = { screen = "bookmarks" }
         )
         return
     }
@@ -564,13 +588,15 @@ fun TrialCard(onPick: (String) -> Unit, onSkip: () -> Unit) {
 }
 
 @Composable
-fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -> Unit, showTrial: Boolean = false, onTrialPick: (String) -> Unit = {}, onTrialSkip: () -> Unit = {}) {
+fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -> Unit, showTrial: Boolean = false, onTrialPick: (String) -> Unit = {}, onTrialSkip: () -> Unit = {}, bookmarks: Set<String> = emptySet(), onToggleBookmark: (Template) -> Unit = {}, onOpenBookmarks: () -> Unit = {}) {
     Box(Modifier.fillMaxSize().statusBarsPadding()) {
         Column(Modifier.fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Text("きっかけ", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                 Spacer(Modifier.width(10.dp))
                 Text("おすすめフィード", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Pink)
+                Spacer(Modifier.weight(1f))
+                Text("🔖 ブックマーク" + if (bookmarks.isNotEmpty()) "（${bookmarks.size}）" else "", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.clickable { onOpenBookmarks() }.padding(horizontal = 6.dp, vertical = 8.dp))
             }
             LazyColumn(contentPadding = PaddingValues(bottom = 110.dp), modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (showTrial) {
@@ -579,7 +605,7 @@ fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -
                 item {
                     Text("ポストを眺めるように、おすすめの組み合わせをどうぞ。気に入ったら「これを使う」で、そのまま自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
                 }
-                itemsIndexed(Templates) { index, t -> FeedCard(t, index, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, modifier = Modifier.animateItem()) }
+                itemsIndexed(Templates) { index, t -> FeedCard(t, index, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, bookmarked = t.macroName in bookmarks, onToggleBookmark = { onToggleBookmark(t) }, modifier = Modifier.animateItem()) }
             }
         }
         // マイセットへのフロートボタン（画面下部に常時表示）
@@ -587,6 +613,34 @@ fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -
             Modifier.align(Alignment.BottomCenter).padding(bottom = 22.dp).shadow(10.dp, RoundedCornerShape(999.dp)).clip(RoundedCornerShape(999.dp)).background(solidBrush(Palette.Pink)).pressable { onOpenMySet() }.padding(horizontal = 26.dp, vertical = 14.dp)
         ) {
             Text("マイセット（${macros.size}件）", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
+    }
+}
+
+// ブックマークしたテンプレを見返す画面（v2.8.0）。カードはフィードと共通
+@Composable
+fun BookmarksScreen(macros: List<Macro>, bookmarks: Set<String>, onUse: (Template) -> Unit, onToggleBookmark: (Template) -> Unit, onBack: () -> Unit) {
+    BackHandler { onBack() }
+    Box(Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(Modifier.fillMaxSize()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("← フィード", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { onBack() }.padding(vertical = 6.dp))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Text("ブックマーク", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                if (bookmarks.isNotEmpty()) {
+                    Spacer(Modifier.width(10.dp))
+                    Text("${bookmarks.size}件", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Pink)
+                }
+            }
+            val saved = Templates.withIndex().filter { it.value.macroName in bookmarks }
+            if (saved.isEmpty()) {
+                Text("まだブックマークがないよ。\n気になるカードの 🔖 を押すと、ここに貯まります。", color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp))
+            } else {
+                LazyColumn(contentPadding = PaddingValues(bottom = 40.dp, top = 14.dp), modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    itemsIndexed(saved) { _, iv -> FeedCard(iv.value, iv.index, added = macros.any { it.name == iv.value.macroName }, onUse = { onUse(iv.value) }, bookmarked = true, onToggleBookmark = { onToggleBookmark(iv.value) }) }
+                }
+            }
         }
     }
 }
@@ -601,10 +655,12 @@ val FeedAccents = listOf(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifier: Modifier = Modifier) {
+fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifier: Modifier = Modifier, bookmarked: Boolean = false, onToggleBookmark: () -> Unit = {}) {
     val context = LocalContext.current
     // 押す前に許可の要否が分かるようにする（C-3）。判定は既存の missingPermKeys を流用
     val needsPerm = remember(t.macroName) { missingPermKeys(context, listOf(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType))).isNotEmpty() }
+    // 仕組み（フローのチップ列・遅延の注意書き）は畳んでおき、タップで開く（v2.8.0・本人の「文字が多い」指摘）
+    var expanded by remember { mutableStateOf(false) }
     val accent = FeedAccents[index % FeedAccents.size]
     val nextAccent = FeedAccents[(index + 1) % FeedAccents.size]
     Box(modifier.fillMaxWidth().glass(20, Palette.GlassCard)) {
@@ -618,20 +674,27 @@ fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifie
                 }
                 Spacer(Modifier.width(12.dp))
                 Text(t.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = if (index == 0) 19.sp else 17.sp, modifier = Modifier.weight(1f))
-            }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                FeedChip("${t.trigger.icon} ${t.trigger.label}" + if (t.param.isNotBlank() && !t.param.contains(".")) " ${t.param}" else "", accent.second, accent.first)
-                t.actions.forEach { a ->
-                    Text("→", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp))
-                    FeedChip("${a.type.icon} ${a.type.label}", Palette.OrangeBg, Palette.Orange)
-                }
-                if (t.constraintType != ConstraintType.NONE) {
-                    Text("＋", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp))
-                    FeedChip(t.constraintType.label, Palette.PurpleBg, Palette.Purple)
+                // あとで見返すためのブックマーク（v2.8.0）
+                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(if (bookmarked) Palette.PinkBg else Palette.Line)).pressable { onToggleBookmark() }.padding(horizontal = 11.dp, vertical = 7.dp)) {
+                    Text("🔖", fontSize = 15.sp)
                 }
             }
             if (t.note.isNotBlank()) Text(t.note, color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
-            if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH || t.trigger == TriggerType.APP_CLOSED || t.trigger == TriggerType.LOCATION) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+            Text(if (expanded) "仕組みを閉じる ▴" else "仕組みを見る ▾", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 2.dp))
+            if (expanded) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FeedChip("${t.trigger.icon} ${t.trigger.label}" + if (t.param.isNotBlank() && !t.param.contains(".")) " ${t.param}" else "", accent.second, accent.first)
+                    t.actions.forEach { a ->
+                        Text("→", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp))
+                        FeedChip("${a.type.icon} ${a.type.label}", Palette.OrangeBg, Palette.Orange)
+                    }
+                    if (t.constraintType != ConstraintType.NONE) {
+                        Text("＋", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp))
+                        FeedChip(t.constraintType.label, Palette.PurpleBg, Palette.Purple)
+                    }
+                }
+                if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH || t.trigger == TriggerType.APP_CLOSED || t.trigger == TriggerType.LOCATION) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+            }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (t.badge.isNotBlank()) {

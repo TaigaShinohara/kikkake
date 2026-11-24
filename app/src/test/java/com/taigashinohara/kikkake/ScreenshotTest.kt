@@ -35,6 +35,14 @@ class ScreenshotTest {
     }
 
     @Test
+    fun bookmarks_screen() {
+        val app = RuntimeEnvironment.getApplication()
+        seedTestData(app, onboardingDone = true, withMacros = true)
+        StateStore(app).bookmarks = setOf(Templates[0].macroName, Templates[2].macroName)
+        shot("bookmarks.png") { BookmarksScreen(macros = MacroStore(app).load(), bookmarks = StateStore(app).bookmarks, onUse = {}, onToggleBookmark = {}, onBack = {}) }
+    }
+
+    @Test
     fun launch_feed_withTrialCard() {
         seedTestData(RuntimeEnvironment.getApplication(), onboardingDone = false, withMacros = false)
         shot("launch_feed_trial.png") { KikkakeApp() }
