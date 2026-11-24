@@ -82,3 +82,11 @@ Roborazzi は Robolectric のネイティブグラフィクス上でそのまま
 - release ビルド注意：`lintVitalAnalyzeRelease` が "For input string: 37.2" で落ちるのは
   SDK プラットフォーム android-37.2 の版文字列を旧 AGP lint が解析できない環境要因
   （アプリの不具合ではない）。当面は `-x lintVitalAnalyzeRelease` を付けてビルドする。
+
+## 結果（2026-11-24、v2.5.0）
+
+- verify：全28件合格（ゴールデン照合一致）。テンプレ31件化に伴いフィードの
+  件数表示が「全31件」になった分だけゴールデンを再記録し目視確認（先頭カード群は不変）。
+  新規テンプレ13件は全てエンジン側の param 仕様（SUN_EVENT の "sunset@緯度,経度"、
+  LOCATION の "arrive@…"、REPEAT の "3回"、WALLPAPER の色名、NOTIFICATION_POSTED の
+  "パッケージ|キーワード"）を実コードで確認してから作成した。

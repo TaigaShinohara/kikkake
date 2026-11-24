@@ -570,7 +570,7 @@ fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifie
                 }
             }
             if (t.note.isNotBlank()) Text(t.note, color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
-            if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH || t.trigger == TriggerType.APP_CLOSED) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+            if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH || t.trigger == TriggerType.APP_CLOSED || t.trigger == TriggerType.LOCATION) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (t.badge.isNotBlank()) {
                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(solidBrush(accent.first)).padding(horizontal = 10.dp, vertical = 5.dp)) {
