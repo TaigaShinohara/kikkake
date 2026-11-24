@@ -526,40 +526,58 @@ fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onBack: () -> Uni
         }
         LazyColumn(contentPadding = PaddingValues(bottom = 40.dp), modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
-                Text("ポストを眺めるように、おすすめの組み合わせをどうぞ。気に入ったら「これを使う」で、そのまま自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
+                Text("ポストを眺めるように、おすすめの組み合わせをどうぞ。全${Templates.size}件、気に入ったら「これを使う」で、そのまま自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
             }
-            items(Templates) { t -> FeedCard(t, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }) }
+            itemsIndexed(Templates) { index, t -> FeedCard(t, index, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, modifier = Modifier.animateItem()) }
         }
     }
 }
 
+// フィードのカードごとに色を巡回させて、眺めるのが楽しくなるようにする（ピンク→オレンジ→紫→水色）
+val FeedAccents = listOf(
+    Palette.Pink to Palette.PinkBg,
+    Palette.Orange to Palette.OrangeBg,
+    Palette.Purple to Palette.PurpleBg,
+    Palette.Sky to Palette.SkyBg
+)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun FeedCard(t: Template, added: Boolean, onUse: () -> Unit) {
-    Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifier: Modifier = Modifier) {
+    val accent = FeedAccents[index % FeedAccents.size]
+    val nextAccent = FeedAccents[(index + 1) % FeedAccents.size]
+    Box(modifier.fillMaxWidth().glass(20, Palette.GlassCard)) {
+        Column {
+            // 上端のグラデーション帯（カードごとに色が変わる）
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 12.dp).height(5.dp).clip(RoundedCornerShape(999.dp)).background(Brush.horizontalGradient(listOf(accent.first, nextAccent.first))))
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PinkBg)).padding(10.dp)) {
+                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(accent.second)).padding(10.dp)) {
                     Text(t.trigger.icon, fontSize = 18.sp)
                 }
                 Spacer(Modifier.width(12.dp))
-                Text(t.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
-                if (t.constraintType != ConstraintType.NONE) {
-                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PurpleBg)).padding(horizontal = 10.dp, vertical = 5.dp)) {
-                        Text(t.constraintType.label, color = Palette.Purple, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
-                }
+                Text(t.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = if (index == 0) 19.sp else 17.sp, modifier = Modifier.weight(1f))
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                FeedChip("${t.trigger.icon} ${t.trigger.label}" + if (t.param.isNotBlank() && !t.param.contains(".")) " ${t.param}" else "", Palette.PinkBg, Palette.Pink)
+                FeedChip("${t.trigger.icon} ${t.trigger.label}" + if (t.param.isNotBlank() && !t.param.contains(".")) " ${t.param}" else "", accent.second, accent.first)
                 t.actions.forEach { a ->
                     Text("→", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp))
                     FeedChip("${a.type.icon} ${a.type.label}", Palette.OrangeBg, Palette.Orange)
                 }
+                if (t.constraintType != ConstraintType.NONE) {
+                    Text("＋", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp))
+                    FeedChip(t.constraintType.label, Palette.PurpleBg, Palette.Purple)
+                }
             }
             if (t.note.isNotBlank()) Text(t.note, color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
-            if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH || t.trigger == TriggerType.APP_CLOSED) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (t.badge.isNotBlank()) {
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(solidBrush(accent.first)).padding(horizontal = 10.dp, vertical = 5.dp)) {
+                        Text(t.badge, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+                Spacer(Modifier.weight(1f))
                 if (added) {
                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.Line)).padding(horizontal = 16.dp, vertical = 9.dp)) {
                         Text("追加済み ✓", color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -569,6 +587,7 @@ fun FeedCard(t: Template, added: Boolean, onUse: () -> Unit) {
                         Text("これを使う", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
+            }
             }
         }
     }

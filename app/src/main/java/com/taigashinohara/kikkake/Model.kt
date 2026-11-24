@@ -194,10 +194,10 @@ object Logic {
     fun wifiConnectedEdge(prev: Boolean, now: Boolean): Boolean = !prev && now
 }
 
-data class Template(val title: String, val macroName: String, val trigger: TriggerType, val param: String, val actions: List<ActionItem>, val constraintType: ConstraintType = ConstraintType.NONE, val note: String = "")
+data class Template(val title: String, val macroName: String, val trigger: TriggerType, val param: String, val actions: List<ActionItem>, val constraintType: ConstraintType = ConstraintType.NONE, val note: String = "", val badge: String = "")
 
 val Templates = listOf(
-    Template("動画の見すぎストッパー", "見すぎストッパー", TriggerType.APP_LAUNCH, "com.google.android.youtube", listOf(ActionItem(ActionType.WAIT, "5分"), ActionItem(ActionType.VIBRATE), ActionItem(ActionType.SPEAK, "そろそろ休憩しよ。目を休めてね")), ConstraintType.NONE, "つい見すぎる動画時間を、スマホ自身に止めてもらう。"),
+    Template("動画の見すぎストッパー", "見すぎストッパー", TriggerType.APP_LAUNCH, "com.google.android.youtube", listOf(ActionItem(ActionType.WAIT, "5分"), ActionItem(ActionType.VIBRATE), ActionItem(ActionType.SPEAK, "そろそろ休憩しよ。目を休めてね")), ConstraintType.NONE, "つい見すぎる動画時間を、スマホ自身に止めてもらう。", badge = "イチオシ"),
     Template("充電100%で声でお知らせ", "充電完了のお知らせ", TriggerType.BATTERY_RISES, "100%", listOf(ActionItem(ActionType.RING), ActionItem(ActionType.SPEAK, "充電が終わったよ。ケーブルを抜いてね")), ConstraintType.NONE, "挿しっぱなし防止。終わったら、声で呼ばれる。"),
     Template("22時に静かに", "夜の静かモード", TriggerType.TIME, "22:00", listOf(ActionItem(ActionType.SILENT), ActionItem(ActionType.BRIGHTNESS_DOWN)), ConstraintType.NONE, "夜中に通知音で起きる事故を、なくす。"),
     Template("朝の準備", "朝のお知らせ", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.VOLUME_UP), ActionItem(ActionType.NOTIFICATION)), ConstraintType.WEEKDAY, "平日の朝、音量を戻して通知でスタート。"),
@@ -206,5 +206,13 @@ val Templates = listOf(
     Template("ケーブルを抜いたら声で知らせる", "充電のお知らせ", TriggerType.CHARGING_DONE, "", listOf(ActionItem(ActionType.SPEAK), ActionItem(ActionType.NOTIFICATION)), ConstraintType.NONE, "抜いた瞬間に、声と通知でお知らせ。"),
     Template("ヘッドホンで音楽", "ヘッドホンで音楽", TriggerType.HEADSET, "", listOf(ActionItem(ActionType.MEDIA_PLAY_PAUSE)), ConstraintType.NONE, "つないだら、そのまま再生スタート。"),
     Template("朝の支度アシスト", "朝の支度アシスト", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.WEATHER_NOTIFY), ActionItem(ActionType.SPEAK, "おはよう。今日の天気、通知に出したよ")), ConstraintType.WEEKDAY, "起きたら天気が届く。傘の判断を、家の中で済ませられる。"),
-    Template("AIに聞く朝のひとこと", "朝のAIアドバイス", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.AI_ASK, "今日の天気に合う服装を、一言で教えて"), ActionItem(ActionType.SPEAK, "{ai}")), ConstraintType.WEEKDAY, "AIの答えを、そのまま声で読み上げ。朝の服装選びを肩代わり。")
+    Template("AIに聞く朝のひとこと", "朝のAIアドバイス", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.AI_ASK, "今日の天気に合う服装を、一言で教えて"), ActionItem(ActionType.SPEAK, "{ai}")), ConstraintType.WEEKDAY, "AIの答えを、そのまま声で読み上げ。朝の服装選びを肩代わり。", badge = "AI"),
+    Template("帰宅モード", "帰宅モード", TriggerType.WIFI_CONNECTED, "", listOf(ActionItem(ActionType.BRIGHTNESS_UP), ActionItem(ActionType.VOLUME_UP), ActionItem(ActionType.NOTIFICATION, "おかえり。明るさと音量を戻したよ")), ConstraintType.NONE, "家のWi-Fiにつながったら、昼モードに自動で復帰。設定を開く手間が消える。", badge = "新入り"),
+    Template("Bluetoothで音楽スタート", "Bluetoothで音楽", TriggerType.BLUETOOTH, "", listOf(ActionItem(ActionType.MUSIC_PLAY)), ConstraintType.NONE, "車やスピーカーがつながった瞬間、音楽が勝手に流れ出す。", badge = "新入り"),
+    Template("LINEが来たら声でお知らせ", "LINEの声お知らせ", TriggerType.NOTIFICATION_POSTED, "jp.naver.line.android|", listOf(ActionItem(ActionType.SPEAK, "LINEが来たよ")), ConstraintType.NONE, "大事な連絡を、画面を見なくても気づける。相手はあとから編集で変えられる。", badge = "新入り"),
+    Template("おやすみモードと連動", "おやすみ連動", TriggerType.DND_STATE, "on", listOf(ActionItem(ActionType.BRIGHTNESS_DOWN), ActionItem(ActionType.WIDGET_SET, "🌙 おやすみ中")), ConstraintType.NONE, "集中モードにしたら、画面もホーム画面も夜仕様に切り替わる。", badge = "新入り"),
+    Template("着陸したら現地の天気", "着陸したら天気", TriggerType.AIRPLANE, "off", listOf(ActionItem(ActionType.WEATHER_NOTIFY)), ConstraintType.NONE, "機内モードを切った瞬間、着いた場所の天気が届く。旅行の最初の一手が決まる。", badge = "新入り"),
+    Template("音楽で起きる朝", "音楽で起きる朝", TriggerType.TIME, "07:30", listOf(ActionItem(ActionType.MUSIC_PLAY), ActionItem(ActionType.VOLUME_UP)), ConstraintType.WEEKDAY, "アラーム音より、好きな音楽で起きる方が気持ちいい。", badge = "新入り"),
+    Template("YouTubeを閉じたら一息", "見終わりの合図", TriggerType.APP_CLOSED, "com.google.android.youtube", listOf(ActionItem(ActionType.SPEAK, "おつかれさま。目を休めてね")), ConstraintType.NONE, "見終わったあとの区切りを、スマホが作ってくれる。", badge = "新入り"),
+    Template("夕方の天気チェック", "夕方の天気チェック", TriggerType.TIME, "18:00", listOf(ActionItem(ActionType.WEATHER_NOTIFY)), ConstraintType.NONE, "一日の終わりに天気を確認。明日の支度の参考に、ちょうどいい。", badge = "新入り")
 )
