@@ -8,7 +8,10 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import com.github.takahirom.roborazzi.captureRoboImage
+import java.io.File
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.test.core.app.ApplicationProvider
@@ -43,8 +46,10 @@ class ScreenFlowTest {
     }
 
     @Test
-    fun home_showsTilesWithActions() {
+    fun myset_showsTilesWithActions() {
         setApp(onboardingDone = true, withMacros = true)
+        // v2.6.0：起動直後はフィード（ホーム）。フロートボタンからマイセットへ
+        rule.onNodeWithText("マイセット", substring = true).performClick()
         rule.onNodeWithText("見すぎストッパー", substring = true).assertIsDisplayed()
         // タイルの操作ラベル（v2.2.5 で自動縮小に差し替えた所）が描かれていること
         rule.onAllNodesWithText("テスト").onFirst().assertIsDisplayed()
@@ -53,8 +58,18 @@ class ScreenFlowTest {
     }
 
     @Test
+    fun myset_golden() {
+        setApp(onboardingDone = true, withMacros = true)
+        rule.onNodeWithText("マイセット", substring = true).performClick()
+        rule.onNodeWithText("見すぎストッパー", substring = true).assertIsDisplayed()
+        rule.onRoot().captureRoboImage(File("src/test/screenshots/myset.png"))
+    }
+
+    @Test
     fun wizard_reachesStep3WithConstraintChips() {
         setApp(onboardingDone = true, withMacros = false)
+        // 「＋ つくる」はマイセット側にある
+        rule.onNodeWithText("マイセット", substring = true).performClick()
         rule.onNodeWithText("＋ つくる").performClick()
         rule.onNodeWithText("いつ動かす？").assertIsDisplayed()
         rule.onAllNodesWithText("時刻", substring = true).onFirst().performClick()
@@ -67,12 +82,9 @@ class ScreenFlowTest {
     }
 
     @Test
-    fun feed_useTemplate_addsMacroToHome() {
+    fun feed_useTemplate_addsMacroToMySet() {
         setApp(onboardingDone = true, withMacros = true)
-        // フィード入口はホーム一覧の下方（index 5：ヘッダー／タイル／実行ログ／権限／AI設定の次）。
-        // LazyColumn は画面外の項目を合成しないので、まず一覧側をスクロールしてから探す
-        rule.onNode(hasScrollAction()).performScrollToIndex(5)
-        rule.onNodeWithText("おすすめフィード").performClick()
+        // v2.6.0：起動直後がフィード（ホーム）そのもの
         rule.onNodeWithText("動画の見すぎストッパー").assertIsDisplayed()
         // フィード側も LazyColumn：画面外カードのボタンは bounds 0 で押せないため、先にカードを画面内へ
         // （フィードの項目 index：0=案内文、1〜=テンプレカード。22時に静かに は 3）

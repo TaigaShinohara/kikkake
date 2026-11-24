@@ -31,9 +31,9 @@ class LargeFontScreenshotTest {
     }
 
     @Test
-    fun home_withMacros_largeFont() {
+    fun launch_feed_largeFont() {
         seedTestData(RuntimeEnvironment.getApplication(), onboardingDone = true, withMacros = true)
-        shot("home_with_macros_large.png") { KikkakeApp() }
+        shot("launch_feed_large.png") { KikkakeApp() }
     }
 
     @Test

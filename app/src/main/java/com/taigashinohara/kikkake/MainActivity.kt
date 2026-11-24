@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -216,7 +217,7 @@ fun KikkakeApp() {
     val store = remember { MacroStore(context) }
     val stateStore = remember { StateStore(context) }
     var macros by remember { mutableStateOf(store.load()) }
-    var screen by rememberSaveable { mutableStateOf(if (stateStore.onboardingDone) "home" else "onboarding") }
+    var screen by rememberSaveable { mutableStateOf(if (stateStore.onboardingDone) "feed" else "onboarding") }
     var resumeTick by remember { mutableIntStateOf(0) }
     var highlightId by remember { mutableStateOf(-1L) }
     var pickerTarget by rememberSaveable { mutableStateOf("") }
@@ -290,7 +291,7 @@ fun KikkakeApp() {
     }
 
     if (screen == "onboarding") {
-        OnboardingScreen(onFinish = { stateStore.onboardingDone = true; reload(); screen = "home" })
+        OnboardingScreen(onFinish = { stateStore.onboardingDone = true; reload(); screen = "feed" })
         return
     }
 
@@ -397,7 +398,7 @@ fun KikkakeApp() {
     }
 
     if (screen == "feed") {
-        BackHandler { screen = "home" }
+        // フィードがホーム。戻るはアプリ終了に任せる（BackHandler は置かない）
         FeedScreen(
             macros = macros,
             onUse = { t ->
@@ -409,10 +410,13 @@ fun KikkakeApp() {
                     screen = "home"
                 }
             },
-            onBack = { screen = "home" }
+            onOpenMySet = { screen = "home" }
         )
         return
     }
+
+    // ここから先はマイセット画面（旧ホーム）。戻るとフィード（ホーム）へ
+    BackHandler { screen = "feed" }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -426,8 +430,9 @@ fun KikkakeApp() {
         LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 96.dp), modifier = Modifier.fillMaxSize().padding(pad).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
                 Spacer(Modifier.height(12.dp))
+                Text("← フィード", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { screen = "feed" }.padding(vertical = 6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("きっかけ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                    Text("マイセット", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                     Spacer(Modifier.weight(1f))
                     Text("書き出し", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable {
                         val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, exportJson(macros)) }
@@ -442,7 +447,7 @@ fun KikkakeApp() {
                     Box(Modifier.fillMaxWidth().glass(20, Palette.PinkBg).padding(20.dp)) {
                         Column {
                             Text("まだ自動化がありません", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Pink)
-                            Text("テンプレから1つ足すか、「＋ つくる」から作れます。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
+                            Text("フィードのテンプレから1つ足すか、「＋ つくる」から作れます。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
                         }
                     }
                 }
@@ -503,32 +508,32 @@ fun KikkakeApp() {
                     }
                 }
             }
-            item {
-                Box(Modifier.fillMaxWidth().pressable { screen = "feed" }.glass(20, Palette.PinkBg).padding(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("おすすめフィード", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Pink)
-                        Text("ポストを眺めるように、おすすめの組み合わせを見られます。気に入ったら、そのまま使えます。", color = Palette.Ink, fontSize = 14.sp, lineHeight = 22.sp)
-                        Text("見てみる →", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                }
-            }
             item { Spacer(Modifier.height(88.dp)) }
         }
     }
 }
 
 @Composable
-fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text("← もどる", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { onBack() }.padding(8.dp))
-            Text("おすすめフィード", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
-        }
-        LazyColumn(contentPadding = PaddingValues(bottom = 40.dp), modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item {
-                Text("ポストを眺めるように、おすすめの組み合わせをどうぞ。全${Templates.size}件、気に入ったら「これを使う」で、そのまま自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
+fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -> Unit) {
+    Box(Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(Modifier.fillMaxSize()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("きっかけ", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                Spacer(Modifier.width(10.dp))
+                Text("おすすめフィード", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Pink)
             }
-            itemsIndexed(Templates) { index, t -> FeedCard(t, index, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, modifier = Modifier.animateItem()) }
+            LazyColumn(contentPadding = PaddingValues(bottom = 110.dp), modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                item {
+                    Text("ポストを眺めるように、おすすめの組み合わせをどうぞ。全${Templates.size}件、気に入ったら「これを使う」で、そのまま自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
+                }
+                itemsIndexed(Templates) { index, t -> FeedCard(t, index, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, modifier = Modifier.animateItem()) }
+            }
+        }
+        // マイセットへのフロートボタン（画面下部に常時表示）
+        Box(
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 22.dp).shadow(10.dp, RoundedCornerShape(999.dp)).clip(RoundedCornerShape(999.dp)).background(solidBrush(Palette.Pink)).pressable { onOpenMySet() }.padding(horizontal = 26.dp, vertical = 14.dp)
+        ) {
+            Text("マイセット（${macros.size}件）", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
     }
 }

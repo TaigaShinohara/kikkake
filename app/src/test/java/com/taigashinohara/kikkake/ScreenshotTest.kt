@@ -12,7 +12,7 @@ import org.robolectric.annotation.GraphicsMode
 
 // 実機なし検証（標準 2026-11-23）：主要画面の見た目を JVM 上で描いてゴールデン画像と照合する。
 // 記録: ./run-tests.sh record ／ 照合: ./run-tests.sh（既定）
-// カバー範囲＝起動直後の画面（ホーム）／オンボーディング入口／作り替えた画面（ウィザード）。
+// カバー範囲＝起動直後の画面（フィード）／オンボーディング入口／作り替えた画面（ウィザード）。
 // Paparazzi は Robolectric の android.os.Build と layoutlib の内包クラス差で落ちるため、
 // Robolectric 上でそのまま撮れる Roborazzi を使う（QRいっき読み等と同方式）。
 @RunWith(RobolectricTestRunner::class)
@@ -29,9 +29,9 @@ class ScreenshotTest {
     }
 
     @Test
-    fun home_withMacros() {
+    fun launch_feed() {
         seedTestData(RuntimeEnvironment.getApplication(), onboardingDone = true, withMacros = true)
-        shot("home_with_macros.png") { KikkakeApp() }
+        shot("launch_feed.png") { KikkakeApp() }
     }
 
     @Test
@@ -54,6 +54,6 @@ class ScreenshotTest {
         val app = RuntimeEnvironment.getApplication()
         seedTestData(app, onboardingDone = true, withMacros = true)
         val macros = MacroStore(app).load()
-        shot("feed_first.png") { FeedScreen(macros = macros, onUse = {}, onBack = {}) }
+        shot("feed_first.png") { FeedScreen(macros = macros, onUse = {}, onOpenMySet = {}) }
     }
 }
