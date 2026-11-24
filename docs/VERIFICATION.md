@@ -18,17 +18,21 @@
   注意：Test タスクのクラスパスを inputs.files や taskDependencies 経由で配線すると、
   Gradle が testDebugUnitTest 自体をグラフへ引き込み Executor が走って落ちる。
   コンパイルタスクへだけ依存し doLast で遅延読みするのが正解（QRいっき読みと同方式）。
+- 注意2：本体クラスはクラスパス上の `runtime_app_classes_jar` の classes.jar 経由で読まれる。
+  その生成タスク（bundleDebugClassesToRuntimeJar）は Test タスクの依存にしかおらず、
+  printUnitTestClasspath の依存に入れておかないと、jar が古いまま（追加した画面が
+  NoSuchMethodError）／clean 後は無いまま（全件 NoClassDefFoundError）になる（2026-11-24 v2.3.0 で踏んだ）。
 
-## テスト構成（全26件）
+## テスト構成（全28件）
 
 | クラス | 件数 | 内容 |
 |---|---|---|
 | LogicTest | 17 | 純ロジック（従来分） |
-| ScreenFlowTest | 3 | Robolectric＋Compose テストルールで実物の KikkakeApp を描き、初回起動→オンボーディング表示／ホームのタイルと操作ラベル／ウィザード Step1→2→3 の遷移と条件チップ表示を検証 |
-| ScreenshotTest | 4 | Roborazzi ゴールデン照合：ホーム（見本マクロ2件）／オンボーディング入口／ウィザード Step1／ウィザード Step3（電池条件チップ） |
+| ScreenFlowTest | 4 | Robolectric＋Compose テストルールで実物の KikkakeApp を描き、初回起動→オンボーディング表示／ホームのタイルと操作ラベル／ウィザード Step1→2→3 の遷移と条件チップ表示／ホーム→おすすめフィード→「これを使う」でマクロ追加→ホームにタイル表示、を検証 |
+| ScreenshotTest | 5 | Roborazzi ゴールデン照合：ホーム（見本マクロ2件）／オンボーディング入口／ウィザード Step1／ウィザード Step3（電池条件チップ）／おすすめフィード先頭カード |
 | LargeFontScreenshotTest | 2 | 同上を fontScale 1.3 で：ホーム／ウィザード Step3 |
 
-ゴールデン画像は `app/src/test/screenshots/`（6枚）。記録したら必ず全枚目視確認する
+ゴールデン画像は `app/src/test/screenshots/`（7枚）。記録したら必ず全枚目視確認する
 （崩壊・見切れ・真っ白が無いこと）。最低カバー範囲＝起動直後の画面／オンボーディング入口／
 その版で作り替えた画面、を満たす。
 
@@ -60,3 +64,11 @@ Roborazzi は Robolectric のネイティブグラフィクス上でそのまま
   大きな文字2枚）— 崩壊・見切れ・真っ白なし。大きな文字でもタイルの「テスト」が欠けず、
   Step3 の条件チップは FlowRow で行折り返しになることを確認（v2.2.4／v2.2.5 の事故の再発なし）。
 - verify：全26件合格（ゴールデン照合一致）。
+
+## 結果（2026-11-24、v2.3.0）
+
+- verify：全28件合格（ゴールデン照合一致）。ゴールデン7枚を目視確認
+  （フィード先頭カード＝フローチップ・ひとこと・追加済み表示に崩れなし／ホーム2枚は差替後も崩れなし）。
+- フィード遷移テストの教訓：LazyColumn は画面外の項目を合成しない／合成しても bounds 0 で押せない。
+  テストでは対象を `performScrollToIndex` で画面内へ入れてから探す・押すこと。
+  部分一致のテキスト検索はスナックバー文言にも当たるため、タイル名は完全一致で探すこと。

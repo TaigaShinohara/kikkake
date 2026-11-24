@@ -11,8 +11,8 @@ android {
         applicationId = "com.taigashinohara.kikkake"
         minSdk = 26
         targetSdk = 36
-        versionCode = 35
-        versionName = "2.2.5"
+        versionCode = 36
+        versionName = "2.3.0"
     }
     signingConfigs {
         val ksFile = rootProject.file(".local/kikkake-debug.jks")
@@ -63,7 +63,10 @@ tasks.register("printUnitTestClasspath") {
     // タスクグラフへ引き込み、このVMでは動かない Gradle Test Executor が走ってしまう。
     // コンパイルタスクへだけ依存し、クラスパスは doLast で遅延読みする（QRいっき読みと同方式）。
     // test_config.properties は、run-tests.sh が設定生成タスクをコマンドラインから明示実行して用意する
-    dependsOn("compileDebugUnitTestKotlin")
+    // 本体クラスは runtime_app_classes_jar の classes.jar 経由でクラスパスに入る。その生成タスクは
+    // Test タスクの依存にしかおらず、明示しないと jar が古いまま／無いままになり実行時に
+    // NoSuchMethodError／NoClassDefFoundError になる（2026-11-24 v2.3.0 で踏んだ）
+    dependsOn("compileDebugUnitTestKotlin", "bundleDebugClassesToRuntimeJar")
     val testTask = tasks.named<Test>("testDebugUnitTest")
     val out = layout.buildDirectory.file("unitTestClasspath.txt")
     outputs.file(out)

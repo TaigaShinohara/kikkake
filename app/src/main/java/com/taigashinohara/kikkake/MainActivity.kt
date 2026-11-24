@@ -396,6 +396,24 @@ fun KikkakeApp() {
         )
     }
 
+    if (screen == "feed") {
+        BackHandler { screen = "home" }
+        FeedScreen(
+            macros = macros,
+            onUse = { t ->
+                if (macros.any { it.name == t.macroName }) {
+                    Toast.makeText(context, "「${t.macroName}」はもうあるよ", Toast.LENGTH_SHORT).show()
+                } else {
+                    val m = Macro(id = System.currentTimeMillis() + t.title.hashCode(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
+                    addMacro(m, "追加したよ！「${t.macroName}」")
+                    screen = "home"
+                }
+            },
+            onBack = { screen = "home" }
+        )
+        return
+    }
+
     Scaffold(
         containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbarHost) },
@@ -486,33 +504,80 @@ fun KikkakeApp() {
                 }
             }
             item {
-                var expanded by remember { mutableStateOf(false) }
-                val showAll = macros.isEmpty() || expanded
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Text("テンプレから始める", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Ink, modifier = Modifier.weight(1f))
-                        if (macros.isNotEmpty()) Text(if (expanded) "閉じる" else "開く", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { expanded = !expanded }.padding(8.dp))
-                    }
-                    if (showAll) Templates.forEach { t ->
-                        Box(Modifier.fillMaxWidth().pressable {
-                            if (macros.any { it.name == t.macroName }) {
-                                scope.launch { snackbarHost.showSnackbar("「${t.macroName}」はもうあるよ") }
-                            } else {
-                                val m = Macro(id = System.currentTimeMillis() + t.title.hashCode(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
-                                addMacro(m, "追加したよ！「${t.macroName}」")
-                            }
-                        }.glass(20, Palette.GlassCard).padding(16.dp)) {
-                            Column {
-                                Text(t.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                                Text(Logic.summary(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType)), color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp)
-                                if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
-                            }
-                        }
+                Box(Modifier.fillMaxWidth().pressable { screen = "feed" }.glass(20, Palette.PinkBg).padding(16.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("おすすめフィード", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Pink)
+                        Text("ポストを眺めるように、おすすめの組み合わせを見られます。気に入ったら、そのまま使えます。", color = Palette.Ink, fontSize = 14.sp, lineHeight = 22.sp)
+                        Text("見てみる →", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
             }
             item { Spacer(Modifier.height(88.dp)) }
         }
+    }
+}
+
+@Composable
+fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Text("← もどる", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { onBack() }.padding(8.dp))
+            Text("おすすめフィード", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+        }
+        LazyColumn(contentPadding = PaddingValues(bottom = 40.dp), modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item {
+                Text("ポストを眺めるように、おすすめの組み合わせをどうぞ。気に入ったら「これを使う」で、そのまま自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
+            }
+            items(Templates) { t -> FeedCard(t, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }) }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun FeedCard(t: Template, added: Boolean, onUse: () -> Unit) {
+    Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PinkBg)).padding(10.dp)) {
+                    Text(t.trigger.icon, fontSize = 18.sp)
+                }
+                Spacer(Modifier.width(12.dp))
+                Text(t.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                if (t.constraintType != ConstraintType.NONE) {
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PurpleBg)).padding(horizontal = 10.dp, vertical = 5.dp)) {
+                        Text(t.constraintType.label, color = Palette.Purple, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                FeedChip("${t.trigger.icon} ${t.trigger.label}" + if (t.param.isNotBlank() && !t.param.contains(".")) " ${t.param}" else "", Palette.PinkBg, Palette.Pink)
+                t.actions.forEach { a ->
+                    Text("→", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp))
+                    FeedChip("${a.type.icon} ${a.type.label}", Palette.OrangeBg, Palette.Orange)
+                }
+            }
+            if (t.note.isNotBlank()) Text(t.note, color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
+            if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                if (added) {
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.Line)).padding(horizontal = 16.dp, vertical = 9.dp)) {
+                        Text("追加済み ✓", color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                } else {
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(solidBrush(Palette.Pink)).pressable { onUse() }.padding(horizontal = 16.dp, vertical = 9.dp)) {
+                        Text("これを使う", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FeedChip(text: String, bg: Color, fg: Color) {
+    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(bg)).padding(horizontal = 10.dp, vertical = 5.dp)) {
+        Text(text, color = fg, fontWeight = FontWeight.Bold, fontSize = 13.sp)
     }
 }
 

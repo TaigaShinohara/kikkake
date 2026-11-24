@@ -3,12 +3,14 @@ package com.taigashinohara.kikkake
 import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Rule
 import org.junit.Test
@@ -62,5 +64,32 @@ class ScreenFlowTest {
         rule.onNodeWithText("名前と条件").performScrollTo().assertIsDisplayed()
         // 作り替えた画面の要：長い条件チップが並んでいること（縦崩れはスクショ側で見る）
         rule.onNodeWithText("電池が◯%以上のとき").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun feed_useTemplate_addsMacroToHome() {
+        setApp(onboardingDone = true, withMacros = true)
+        // フィード入口はホーム一覧の下方（index 5：ヘッダー／タイル／実行ログ／権限／AI設定の次）。
+        // LazyColumn は画面外の項目を合成しないので、まず一覧側をスクロールしてから探す
+        rule.onNode(hasScrollAction()).performScrollToIndex(5)
+        rule.onNodeWithText("おすすめフィード").performClick()
+        rule.onNodeWithText("動画の見すぎストッパー").assertIsDisplayed()
+        // フィード側も LazyColumn：画面外カードのボタンは bounds 0 で押せないため、先にカードを画面内へ
+        // （フィードの項目 index：0=案内文、1〜=テンプレカード。22時に静かに は 3）
+        rule.onNode(hasScrollAction()).performScrollToIndex(3)
+        // 先頭2件は投入済みマクロと同名なので「追加済み」。最初の「これを使う」＝22時に静かに
+        rule.onAllNodesWithText("これを使う").onFirst().performClick()
+        // 追加の保存か、許可ガイドの表示のどちらかが起きるまで待つ（ガイドは少し遅れて出ることがある）
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        rule.waitUntil(timeoutMillis = 5_000) {
+            rule.onAllNodesWithText("あとで").fetchSemanticsNodes().isNotEmpty() ||
+                MacroStore(ctx).load().any { it.name == "夜の静かモード" }
+        }
+        // 許可ガイドが出ている環境では閉じてから、ホームにタイルが出たことを見る
+        if (rule.onAllNodesWithText("あとで").fetchSemanticsNodes().isNotEmpty()) {
+            rule.onNodeWithText("あとで").performClick()
+        }
+        // 部分一致だとスナックバーの文言（追加したよ！「夜の静かモード」）にも当たるため完全一致で探す
+        rule.onNodeWithText("夜の静かモード").performScrollTo().assertIsDisplayed()
     }
 }

@@ -48,4 +48,12 @@ class ScreenshotTest {
     fun wizard_step3_batteryConstraint() {
         shot("wizard_step3.png") { WizardStepForTest(3, TriggerType.TIME.name, "22:00", ConstraintType.BATTERY_ABOVE.name) }
     }
+
+    @Test
+    fun feed_firstCards() {
+        val app = RuntimeEnvironment.getApplication()
+        seedTestData(app, onboardingDone = true, withMacros = true)
+        val macros = MacroStore(app).load()
+        shot("feed_first.png") { FeedScreen(macros = macros, onUse = {}, onBack = {}) }
+    }
 }
