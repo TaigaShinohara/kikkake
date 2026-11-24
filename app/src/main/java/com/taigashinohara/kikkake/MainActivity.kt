@@ -589,6 +589,7 @@ fun TrialCard(onPick: (String) -> Unit, onSkip: () -> Unit) {
 
 @Composable
 fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -> Unit, showTrial: Boolean = false, onTrialPick: (String) -> Unit = {}, onTrialSkip: () -> Unit = {}, bookmarks: Set<String> = emptySet(), onToggleBookmark: (Template) -> Unit = {}, onOpenBookmarks: () -> Unit = {}) {
+    val permNeeds = rememberPermNeeds()
     Box(Modifier.fillMaxSize().statusBarsPadding()) {
         Column(Modifier.fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
@@ -605,7 +606,7 @@ fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -
                 item {
                     Text("ポストを眺めるように、おすすめの組み合わせをどうぞ。気に入ったら「これを使う」で、そのまま自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
                 }
-                itemsIndexed(Templates) { index, t -> FeedCard(t, index, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, bookmarked = t.macroName in bookmarks, onToggleBookmark = { onToggleBookmark(t) }, modifier = Modifier.animateItem()) }
+                itemsIndexed(Templates) { index, t -> FeedCard(t, index, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, bookmarked = t.macroName in bookmarks, onToggleBookmark = { onToggleBookmark(t) }, needsPerm = permNeeds[t.macroName] == true, modifier = Modifier.animateItem()) }
             }
         }
         // マイセットへのフロートボタン（画面下部に常時表示）
@@ -637,8 +638,9 @@ fun BookmarksScreen(macros: List<Macro>, bookmarks: Set<String>, onUse: (Templat
             if (saved.isEmpty()) {
                 Text("まだブックマークがないよ。\n気になるカードの 🔖 を押すと、ここに貯まります。", color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp))
             } else {
+                val permNeeds = rememberPermNeeds()
                 LazyColumn(contentPadding = PaddingValues(bottom = 40.dp, top = 14.dp), modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    itemsIndexed(saved) { _, iv -> FeedCard(iv.value, iv.index, added = macros.any { it.name == iv.value.macroName }, onUse = { onUse(iv.value) }, bookmarked = true, onToggleBookmark = { onToggleBookmark(iv.value) }) }
+                    itemsIndexed(saved) { _, iv -> FeedCard(iv.value, iv.index, added = macros.any { it.name == iv.value.macroName }, onUse = { onUse(iv.value) }, bookmarked = true, onToggleBookmark = { onToggleBookmark(iv.value) }, needsPerm = permNeeds[iv.value.macroName] == true) }
                 }
             }
         }
@@ -653,12 +655,16 @@ val FeedAccents = listOf(
     Palette.Sky to Palette.SkyBg
 )
 
+// テンプレ全件の許可要否を一括で先に計算する（カードごとに判定を回さない＝フィードの軽量化、v2.9.0）
+@Composable
+fun rememberPermNeeds(): Map<String, Boolean> {
+    val context = LocalContext.current
+    return remember { Templates.associate { t -> t.macroName to missingPermKeys(context, listOf(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType))).isNotEmpty() } }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifier: Modifier = Modifier, bookmarked: Boolean = false, onToggleBookmark: () -> Unit = {}) {
-    val context = LocalContext.current
-    // 押す前に許可の要否が分かるようにする（C-3）。判定は既存の missingPermKeys を流用
-    val needsPerm = remember(t.macroName) { missingPermKeys(context, listOf(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType))).isNotEmpty() }
+fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifier: Modifier = Modifier, bookmarked: Boolean = false, onToggleBookmark: () -> Unit = {}, needsPerm: Boolean = false) {
     // 仕組み（フローのチップ列・遅延の注意書き）は畳んでおき、タップで開く（v2.8.0・本人の「文字が多い」指摘）
     var expanded by remember { mutableStateOf(false) }
     val accent = FeedAccents[index % FeedAccents.size]

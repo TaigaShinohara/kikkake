@@ -14,6 +14,15 @@ class LogicTest {
         val n = Logic.autoName(TriggerType.TIME, listOf(ActionItem(ActionType.SILENT), ActionItem(ActionType.BRIGHTNESS_DOWN)))
         assertTrue(n.contains("など2件"))
     }
+    @Test fun templates_areWellFormed() {
+        // テンプレ全件の健全性（v2.9.0で51件）：名前の重複なし、動作が空でない、ひとことがある
+        assertEquals(51, Templates.size)
+        assertEquals(Templates.size, Templates.map { it.macroName }.toSet().size)
+        Templates.forEach { t ->
+            assertTrue("${t.title} has actions", t.actions.isNotEmpty())
+            assertTrue("${t.title} has note", t.note.isNotBlank())
+        }
+    }
     @Test fun allPatternsHaveIcons() {
         TriggerType.values().forEach { assertTrue(it.icon.isNotBlank()) }
         ActionType.values().forEach { assertTrue(it.icon.isNotBlank()) }
