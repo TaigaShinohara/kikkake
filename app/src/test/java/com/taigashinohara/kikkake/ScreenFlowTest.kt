@@ -40,9 +40,28 @@ class ScreenFlowTest {
     }
 
     @Test
-    fun firstLaunch_showsOnboarding() {
+    fun firstLaunch_showsFeedWithTrialCard() {
+        // v2.7.0：初回でも講義を挟まずフィード直行。先頭に試し置きカードが出る（C-2）
         setApp(onboardingDone = false, withMacros = false)
-        rule.onNodeWithText("きっかけを置くだけで、スマホが勝手に動いてくれる。").assertIsDisplayed()
+        rule.onNodeWithText("困りごとを1つ選んでね", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("電池の減りが気になる", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun trialCard_pick_placesMacroAndShowsTryNow() {
+        setApp(onboardingDone = false, withMacros = false)
+        rule.onNodeWithText("電池の減りが気になる", substring = true).performClick()
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        rule.waitUntil(timeoutMillis = 5_000) {
+            rule.onAllNodesWithText("あとで").fetchSemanticsNodes().isNotEmpty() ||
+                MacroStore(ctx).load().any { it.name == "電池節約" }
+        }
+        if (rule.onAllNodesWithText("あとで").fetchSemanticsNodes().isNotEmpty()) {
+            rule.onNodeWithText("あとで").performClick()
+        }
+        // 着地したマイセットで、追加直後の主ボタン「今すぐ試す」が見えること（C-4）
+        rule.onNodeWithText("今すぐ試す", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("電池節約").assertIsDisplayed()
     }
 
     @Test
@@ -103,5 +122,7 @@ class ScreenFlowTest {
         }
         // 部分一致だとスナックバーの文言（追加したよ！「夜の静かモード」）にも当たるため完全一致で探す
         rule.onNodeWithText("夜の静かモード").performScrollTo().assertIsDisplayed()
+        // 追加直後のタイルには「今すぐ試す」が出ていること（C-4）
+        rule.onNodeWithText("今すぐ試す", substring = true).performScrollTo().assertIsDisplayed()
     }
 }

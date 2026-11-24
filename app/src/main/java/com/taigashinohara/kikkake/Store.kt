@@ -121,6 +121,10 @@ class StateStore(context: Context) {
     var onboardingDone: Boolean
         get() = prefs.getBoolean("onboardingDone", false)
         set(v) = prefs.edit().putBoolean("onboardingDone", v).apply()
+    // フィード先頭の試し置きカードを出し終えたか（v2.7.0〜）。旧オンボーディング完了者は出し終えたものとして扱う
+    var trialDone: Boolean
+        get() = prefs.getBoolean("trialDone", prefs.getBoolean("onboardingDone", false))
+        set(v) = prefs.edit().putBoolean("trialDone", v).apply()
     // 端末状態のエッジ検出用（-1=未観測, 0=OFF, 1=ON）
     var stateDnd: Int
         get() = prefs.getInt("stateDnd", -1)

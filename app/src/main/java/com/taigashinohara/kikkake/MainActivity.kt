@@ -217,7 +217,11 @@ fun KikkakeApp() {
     val store = remember { MacroStore(context) }
     val stateStore = remember { StateStore(context) }
     var macros by remember { mutableStateOf(store.load()) }
-    var screen by rememberSaveable { mutableStateOf(if (stateStore.onboardingDone) "feed" else "onboarding") }
+    // v2.7.0：初回でも講義を挟まずフィード直行（C-2）。試し置きはフィード先頭のカードで受ける
+    var screen by rememberSaveable { mutableStateOf("feed") }
+    var trialDone by remember { mutableStateOf(stateStore.trialDone) }
+    var tryNowId by remember { mutableStateOf(-1L) }
+    var showMoreSettings by remember { mutableStateOf(false) }
     var resumeTick by remember { mutableIntStateOf(0) }
     var highlightId by remember { mutableStateOf(-1L) }
     var pickerTarget by rememberSaveable { mutableStateOf("") }
@@ -277,22 +281,33 @@ fun KikkakeApp() {
         wStep = 1; screen = "wizard"
     }
 
+    fun runTest(m: Macro) {
+        // 声で知らせる等の完了待ちがあるため、テストはバックグラウンドで実行する
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { Engine.executeTest(context, m) }
+            val msg = when (r) {
+                Engine.ExecResult.OK -> "動いたよ ✓"
+                Engine.ExecResult.PARTIAL_OK -> "一部の動作は許可が足りなくて動かなかったよ。下の「権限チェック」を見てね"
+                Engine.ExecResult.BLOCKED_BY_PERMISSION -> "許可が足りない動作があったよ。下の「権限チェック」を見てね"
+                else -> "今は動かせる動作がなかったよ"
+            }
+            snackbarHost.showSnackbar(msg)
+            reload()
+        }
+    }
+
     fun addMacro(m: Macro, message: String) {
         saveMacros(macros + m)
         Engine.scheduleTimeAlarm(context, m); Engine.scheduleSunAlarm(context, m)
         if (missingPermKeys(context, listOf(m)).isNotEmpty()) permGuide = m
         highlightId = m.id
+        tryNowId = m.id
         scope.launch {
             val idx = macros.indexOfFirst { it.id == m.id }
             // ヘッダー分を概算でずらして新規カードへ寄せる
             listState.animateScrollToItem(if (idx >= 0) idx / 2 + 1 else 1)
             snackbarHost.showSnackbar(message)
         }
-    }
-
-    if (screen == "onboarding") {
-        OnboardingScreen(onFinish = { stateStore.onboardingDone = true; reload(); screen = "feed" })
-        return
     }
 
     if (pickerTarget.isNotEmpty()) {
@@ -348,7 +363,7 @@ fun KikkakeApp() {
         return
     }
 
-    permGuide?.let { g -> PermGuideDialog(macro = g, tick = resumeTick, onClose = { permGuide = null }) }
+    permGuide?.let { g -> PermGuideDialog(macro = g, tick = resumeTick, onClose = { permGuide = null }, onBackToFeed = { permGuide = null; screen = "feed" }) }
     if (showImport) {
         AlertDialog(
             onDismissRequest = { showImport = false },
@@ -401,6 +416,19 @@ fun KikkakeApp() {
         // フィードがホーム。戻るはアプリ終了に任せる（BackHandler は置かない）
         FeedScreen(
             macros = macros,
+            showTrial = !trialDone,
+            onTrialPick = { key ->
+                stateStore.trialDone = true; trialDone = true
+                val t = if (key == "battery") Templates[4] else Templates[2]
+                if (macros.any { it.name == t.macroName }) {
+                    screen = "home"
+                } else {
+                    val m = Macro(id = System.currentTimeMillis() + t.title.hashCode(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
+                    addMacro(m, "置いたよ！「${t.macroName}」")
+                    screen = "home"
+                }
+            },
+            onTrialSkip = { stateStore.trialDone = true; trialDone = true },
             onUse = { t ->
                 if (macros.any { it.name == t.macroName }) {
                     Toast.makeText(context, "「${t.macroName}」はもうあるよ", Toast.LENGTH_SHORT).show()
@@ -434,11 +462,6 @@ fun KikkakeApp() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("マイセット", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                     Spacer(Modifier.weight(1f))
-                    Text("書き出し", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable {
-                        val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, exportJson(macros)) }
-                        context.startActivity(Intent.createChooser(send, "自動化を書き出す"))
-                    }.padding(horizontal = 8.dp, vertical = 10.dp))
-                    Text("読み込み", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { importText = ""; showImport = true }.padding(horizontal = 8.dp, vertical = 10.dp))
                     Text("使い方", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { screen = "help" }.padding(horizontal = 8.dp, vertical = 10.dp))
                 }
             }
@@ -458,25 +481,14 @@ fun KikkakeApp() {
                         Box(Modifier.weight(1f).fillMaxHeight()) {
                             MacroTile(
                                 macro = m, highlighted = m.id == highlightId,
+                                justAdded = m.id == tryNowId,
+                                onTryNow = { tryNowId = -1L; runTest(m) },
                                 onToggle = {
                                     val updated = m.copy(enabled = !m.enabled)
                                     saveMacros(macros.map { if (it.id == m.id) updated else it })
                                     if (updated.enabled) { Engine.scheduleTimeAlarm(context, updated); Engine.scheduleSunAlarm(context, updated) } else Engine.cancelTimeAlarm(context, updated)
                                 },
-                                onTest = {
-                                    // 声で知らせる等の完了待ちがあるため、テストはバックグラウンドで実行する
-                                    scope.launch {
-                                        val r = withContext(Dispatchers.IO) { Engine.executeTest(context, m) }
-                                        val msg = when (r) {
-                                            Engine.ExecResult.OK -> "動いたよ ✓"
-                                            Engine.ExecResult.PARTIAL_OK -> "一部の動作は許可が足りなくて動かなかったよ。下の「権限チェック」を見てね"
-                                            Engine.ExecResult.BLOCKED_BY_PERMISSION -> "許可が足りない動作があったよ。下の「権限チェック」を見てね"
-                                            else -> "今は動かせる動作がなかったよ"
-                                        }
-                                        snackbarHost.showSnackbar(msg)
-                                        reload()
-                                    }
-                                },
+                                onTest = { runTest(m) },
                                 onEdit = { startWizard(m) },
                                 onDelete = {
                                     Engine.cancelTimeAlarm(context, m)
@@ -499,12 +511,33 @@ fun KikkakeApp() {
             item { RunLogSection(stateStore.runLog) }
             item { PermissionSection(resumeTick, macros) }
             item {
-                val keySet = remember(resumeTick) { StateStore(context).aiApiKey.isNotBlank() }
-                Column(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("AIに聞く の設定", fontWeight = FontWeight.Bold, color = Palette.Ink, fontSize = 16.sp)
-                    Text(if (keySet) "APIキーは設定済み。端末内AIを優先して使います。" else "端末内AI（対応端末のみ）が使えます。APIキーを入れると、非対応の端末でもAIに聞けます。", color = Palette.InkSoft, fontSize = 13.sp)
-                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PurpleBg)).pressable { aiKeyInput = StateStore(context).aiApiKey; showAiSettings = true }.padding(horizontal = 16.dp, vertical = 9.dp)) {
-                        Text("設定する", color = Palette.Purple, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                // 管理系（AIキー・書き出し・読み込み）は畳んで奥へ（I-3）。着地直後の主役はタイルと「次を眺める」導線だけにする
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.fillMaxWidth().clickable { showMoreSettings = !showMoreSettings }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("その他の設定", fontWeight = FontWeight.Bold, color = Palette.InkSoft, fontSize = 15.sp)
+                        Spacer(Modifier.weight(1f))
+                        Text(if (showMoreSettings) "閉じる ▴" else "開く ▾", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                    if (showMoreSettings) {
+                        val keySet = remember(resumeTick) { StateStore(context).aiApiKey.isNotBlank() }
+                        Column(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("AIに聞く の設定", fontWeight = FontWeight.Bold, color = Palette.Ink, fontSize = 16.sp)
+                            Text(if (keySet) "APIキーは設定済み。端末内AIを優先して使います。" else "端末内AI（対応端末のみ）が使えます。APIキーを入れると、非対応の端末でもAIに聞けます。", color = Palette.InkSoft, fontSize = 13.sp)
+                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PurpleBg)).pressable { aiKeyInput = StateStore(context).aiApiKey; showAiSettings = true }.padding(horizontal = 16.dp, vertical = 9.dp)) {
+                                Text("設定する", color = Palette.Purple, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).pressable {
+                                val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, exportJson(macros)) }
+                                context.startActivity(Intent.createChooser(send, "自動化を書き出す"))
+                            }.padding(horizontal = 16.dp, vertical = 9.dp)) {
+                                Text("書き出し", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).pressable { importText = ""; showImport = true }.padding(horizontal = 16.dp, vertical = 9.dp)) {
+                                Text("読み込み", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        }
                     }
                 }
             }
@@ -513,8 +546,25 @@ fun KikkakeApp() {
     }
 }
 
+// 初回だけフィード先頭に出る「試し置き」カード（旧オンボーディングの吸収先、C-2）
 @Composable
-fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -> Unit) {
+fun TrialCard(onPick: (String) -> Unit, onSkip: () -> Unit) {
+    Box(Modifier.fillMaxWidth().glass(20, Palette.PinkBg).padding(18.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("はじめて？ 困りごとを1つ選んでね", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Palette.Pink)
+            Text("ぴったりの自動化を1つ置きます。気に入らなければ、あとから消せます。", color = Palette.Ink, fontSize = 14.sp, lineHeight = 22.sp)
+            listOf("night" to "🌙 夜に音が鳴って困る", "battery" to "🔋 電池の減りが気になる", "unknown" to "🤔 まだわからない").forEach { (key, label) ->
+                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(tintBrush(Palette.GlassCard)).pressable { onPick(key) }.padding(horizontal = 16.dp, vertical = 13.dp)) {
+                    Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Palette.Ink)
+                }
+            }
+            Text("あとで", color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.clickable { onSkip() }.padding(4.dp))
+        }
+    }
+}
+
+@Composable
+fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -> Unit, showTrial: Boolean = false, onTrialPick: (String) -> Unit = {}, onTrialSkip: () -> Unit = {}) {
     Box(Modifier.fillMaxSize().statusBarsPadding()) {
         Column(Modifier.fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
@@ -523,8 +573,11 @@ fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -
                 Text("おすすめフィード", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Pink)
             }
             LazyColumn(contentPadding = PaddingValues(bottom = 110.dp), modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (showTrial) {
+                    item { TrialCard(onPick = onTrialPick, onSkip = onTrialSkip) }
+                }
                 item {
-                    Text("ポストを眺めるように、おすすめの組み合わせをどうぞ。全${Templates.size}件、気に入ったら「これを使う」で、そのまま自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
+                    Text("ポストを眺めるように、おすすめの組み合わせをどうぞ。気に入ったら「これを使う」で、そのまま自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
                 }
                 itemsIndexed(Templates) { index, t -> FeedCard(t, index, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, modifier = Modifier.animateItem()) }
             }
@@ -549,6 +602,9 @@ val FeedAccents = listOf(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    // 押す前に許可の要否が分かるようにする（C-3）。判定は既存の missingPermKeys を流用
+    val needsPerm = remember(t.macroName) { missingPermKeys(context, listOf(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType))).isNotEmpty() }
     val accent = FeedAccents[index % FeedAccents.size]
     val nextAccent = FeedAccents[(index + 1) % FeedAccents.size]
     Box(modifier.fillMaxWidth().glass(20, Palette.GlassCard)) {
@@ -577,9 +633,14 @@ fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifie
             if (t.note.isNotBlank()) Text(t.note, color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
             if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH || t.trigger == TriggerType.APP_CLOSED || t.trigger == TriggerType.LOCATION) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (t.badge.isNotBlank()) {
-                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(solidBrush(accent.first)).padding(horizontal = 10.dp, vertical = 5.dp)) {
-                        Text(t.badge, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (t.badge.isNotBlank()) {
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(solidBrush(accent.first)).padding(horizontal = 10.dp, vertical = 5.dp)) {
+                            Text(t.badge, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                    if (!added) {
+                        if (needsPerm) FeedChip("許可が要る", Palette.SkyBg, Palette.Sky) else FeedChip("すぐ試せる", Palette.PinkBg, Palette.Pink)
                     }
                 }
                 Spacer(Modifier.weight(1f))
@@ -634,183 +695,13 @@ fun hapticFeedback(view: View, strong: Boolean) {
 }
 
 @Composable
-fun OnboardingScreen(onFinish: () -> Unit) {
-    val context = LocalContext.current
-    val view = LocalView.current
-    var page by rememberSaveable { mutableIntStateOf(0) }
-    var trouble by rememberSaveable { mutableStateOf("") }
-    var advancing by remember { mutableStateOf(false) }
-    var trialPlaced by remember { mutableStateOf(false) }
-    var permTick by remember { mutableIntStateOf(0) }
-    val store = remember { MacroStore(context) }
-
-    val lifecycleOwner2 = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner2) {
-        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) permTick++ }
-        lifecycleOwner2.lifecycle.addObserver(obs)
-        onDispose { lifecycleOwner2.lifecycle.removeObserver(obs) }
-    }
-
-    LaunchedEffect(advancing) {
-        if (advancing) { delay(950); page = 2; advancing = false }
-    }
-
-    // 完了の返し（大）：試しを置いて最後のページに着いたら、成功の触覚を1回だけ返す
-    LaunchedEffect(page) {
-        if (page == 7 && trialPlaced) hapticFeedback(view, strong = true)
-    }
-
-    // 戻る操作でも前のページへ（離れる操作に称賛・触覚は付けない）
-    BackHandler(enabled = page > 0) { page-- }
-
-    val trialTemplate = when (trouble) {
-        "battery" -> Templates[4]
-        else -> Templates[2]
-    }
-
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        // 進捗は窓ドット：最大5つ、現在を中心に窓が動き、総ページ数を数えさせない
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                val totalPages = 8
-                val winStart = (page - 2).coerceIn(0, totalPages - 5)
-                (winStart until winStart + 5).forEach { i ->
-                    val dotSize = when { i == page -> 10.dp; i == winStart || i == winStart + 4 -> 5.dp; else -> 8.dp }
-                    Box(Modifier.size(dotSize).clip(RoundedCornerShape(999.dp)).background(if (i <= page) Palette.Pink else Palette.Line))
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        when (page) {
-            0 -> {
-                Text("スマホの操作、\n覚えなくていい", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, lineHeight = 36.sp)
-                Text("きっかけを置くだけで、スマホが勝手に動いてくれる。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
-                BigEmoji("🌱")
-            }
-            1 -> {
-                Text("どんなことで\n困ってる？", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, lineHeight = 36.sp)
-                listOf("night" to "夜に音が鳴って困る", "battery" to "電池の減りが気になる", "unknown" to "まだわからない").forEach { (key, label) ->
-                    Box(Modifier.fillMaxWidth().pressable { if (!advancing) { trouble = key; advancing = true; hapticFeedback(view, strong = false) } }.glass(20, if (trouble == key) Palette.PinkBg else Palette.GlassCard).padding(20.dp)) {
-                        Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (trouble == key) Palette.Pink else Palette.Ink)
-                    }
-                }
-                if (advancing) {
-                    val praise = when (trouble) {
-                        "night" -> "ありがとう。夜の静けさ、大事だよね"
-                        "battery" -> "ありがとう。電池の心配、減らしていこう"
-                        else -> "ありがとう。正直がいちばん助かる"
-                    }
-                    Text(praise, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Palette.Pink, lineHeight = 24.sp)
-                }
-            }
-            2 -> {
-                val echo = when (trouble) {
-                    "night" -> "「夜に音が鳴って困る」——その悩み、受け取ったよ"
-                    "battery" -> "「電池の減りが気になる」——その心配、受け取ったよ"
-                    else -> "「まだわからない」でも大丈夫"
-                }
-                Text(echo, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Pink, lineHeight = 36.sp)
-                val msg = when (trouble) {
-                    "night" -> "22時に自動で静かにできるよ"
-                    "battery" -> "電池が減ったら、自動で節約できるよ"
-                    else -> "大丈夫。テンプレから気軽に試せるよ"
-                }
-                Text("そんなあなたに、きっかけはぴったり。$msg", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
-                BigEmoji("✨")
-            }
-            3 -> { StepPage("ステップ 1 / 3", "きっかけを選ぶ", "「22時になったら」「電池が減ったら」みたいな、始まりの合図。", "①", Palette.Pink, Palette.PinkBg) }
-            4 -> { StepPage("ステップ 2 / 3", "やることを選ぶ", "静かにする、通知する…。組み合わせもOK。", "②", Palette.Orange, Palette.OrangeBg) }
-            5 -> { StepPage("ステップ 3 / 3", "保存するだけ", "あとはスマホがやってくれる。", "③", Palette.Purple, Palette.PurpleBg) }
-            6 -> {
-                Text("試しに1つ、\n置いてみよう", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, lineHeight = 36.sp)
-                Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(20.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(trialTemplate.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text(Logic.summary(Macro(0, trialTemplate.macroName, trialTemplate.trigger, trialTemplate.param, trialTemplate.actions, trialTemplate.constraintType)), color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp)
-                    }
-                }
-                Text("※ この自動化には、端末の許可が要る動作が含まれます。置いたあとの画面で案内します。", color = Palette.InkSoft, fontSize = 13.sp)
-                PrimaryButton("これを置く", modifier = Modifier.fillMaxWidth(), onClick = {
-                    val t = trialTemplate
-                    if (store.load().none { it.name == t.macroName }) {
-                        val m = Macro(id = System.currentTimeMillis(), name = t.macroName, trigger = t.trigger, triggerParam = t.param, actions = t.actions, constraintType = t.constraintType, enabled = true)
-                        store.save(store.load() + m); Engine.scheduleTimeAlarm(context, m); Engine.scheduleSunAlarm(context, m)
-                    }
-                    hapticFeedback(view, strong = true)
-                    trialPlaced = true
-                    page = 7
-                })
-                OutlinedButton(onClick = { onFinish() }, shape = RoundedCornerShape(999.dp), modifier = Modifier.fillMaxWidth()) { Text("あとで試す", fontSize = 15.sp, color = Palette.Pink) }
-            }
-            else -> {
-                Text(if (trialPlaced) "置けたよ。最初の自動化、完成" else "準備できたよ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Pink, lineHeight = 36.sp)
-                Text(if (trialPlaced) "「始める」を押すとホームが開いて、「${trialTemplate.macroName}」が待ってる。あとはスマホにまかせよう。" else "ホームの「テンプレから始める」から、いつでも気軽に試せるよ。気が向いたら1つ置いてみてね。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
-                // 試しの自動化に必要な許可が足りなければ、その場で案内する（UX2-4）
-                if (trialPlaced) {
-                    val t = trialTemplate
-                    val needDnd = t.actions.any { it.type == ActionType.SILENT || it.type == ActionType.DND_ON || it.type == ActionType.DND_OFF }
-                    val needWrite = t.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP }
-                    val needNotif = t.actions.any { it.type == ActionType.NOTIFICATION }
-                    val dndMissing = remember(permTick) { needDnd && !Engine.hasDndAccess(context) }
-                    val writeMissing = remember(permTick) { needWrite && !Engine.canWriteSettings(context) }
-                    val notifMissing = remember(permTick) { needNotif && !Engine.hasNotificationPermission(context) }
-                    if (dndMissing || writeMissing || notifMissing) {
-                        Box(Modifier.fillMaxWidth().glass(20, Palette.SkyBg).padding(16.dp)) {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text("あと1つだけ", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Sky)
-                                Text("置いた自動化を動かすには、この許可が要ります。今ここで済ませると、最初の実行が失敗しません。", fontSize = 15.sp, color = Palette.Ink, lineHeight = 24.sp)
-                                if (dndMissing) PermRow("マナーモードの許可", "着信音の変更に必要", "開いた一覧で『きっかけ』を選んでオンにしてね") {
-                                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
-                                }
-                                if (writeMissing) PermRow("明るさ変更の許可", "画面の明るさ変更に必要", "開いた画面でスイッチをオンにしてね") {
-                                    val i = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply { data = Uri.parse("package:" + context.packageName) }
-                                    context.startActivity(i)
-                                }
-                                if (notifMissing) PermRow("通知", "「通知を出す」に必要", "開いた画面で「通知」をオンにしてね") {
-                                    val i = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply { putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName) }
-                                    context.startActivity(i)
-                                }
-                                Text("あとからホームの「権限チェック」でもできます。", fontSize = 13.sp, color = Palette.InkSoft)
-                            }
-                        }
-                    }
-                }
-                BigEmoji("🎉")
-            }
-        }
-        Spacer(Modifier.weight(1f))
-        if (page != 1 && page != 6) {
-            PrimaryButton(if (page >= 7) "始める" else "次へ", modifier = Modifier.fillMaxWidth().height(54.dp)) { hapticFeedback(view, strong = false); if (page >= 7) onFinish() else page++ }
-        }
-        Row(Modifier.fillMaxWidth()) {
-            if (page > 0) Text("← もどる", color = Palette.InkSoft, fontSize = 14.sp, modifier = Modifier.clickable { page-- }.padding(8.dp))
-            Spacer(Modifier.weight(1f))
-            if (page != 6 && page != 7) Text("スキップ", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.clickable { onFinish() }.padding(4.dp))
-        }
-    }
-}
-
-@Composable
-fun BigEmoji(e: String) {
-    Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) { Text(e, fontSize = 84.sp) }
-}
-
-@Composable
-fun StepPage(kicker: String, title: String, desc: String, num: String, color: Color, bg: Color) {
-    Text(kicker, color = color, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-    Text(title, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
-    Text(desc, fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
-    Box(Modifier.size(110.dp).glass(28, bg), contentAlignment = Alignment.Center) { Text(num, fontSize = 52.sp, color = color, fontWeight = FontWeight.Bold) }
-}
-
-@Composable
 fun HelpScreen(onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("← もどる", color = Palette.Sky, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onBack() }.padding(8.dp))
         }
         Text("使い方", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
-        Text("自動化は3ステップで作れます。ホームの「＋ つくる」から始められます。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
+        Text("自動化は3ステップで作れます。マイセットの「＋ つくる」から始められます。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
         Column {
             HelpStep("1", Palette.Pink, Palette.PinkBg, "きっかけを選ぶ", "「22時になったら」「電池が減ったら」みたいな、始まりの合図。", listOf("⚡ 充電開始", "🕐 22:00", "🔋 電池が少ない"), showLine = true)
             HelpStep("2", Palette.Orange, Palette.OrangeBg, "やることを選ぶ", "静かにする、通知する…。組み合わせもOK。", listOf("🔔 通知を出す", "💬 声で知らせる", "🔦 ライト"), showLine = true)
@@ -938,7 +829,7 @@ fun MissingPermRows(macros: List<Macro>, tick: Int) {
 
 // 保存・追加の直後に出す許可案内（B-2）。そろったら完了を伝える
 @Composable
-fun PermGuideDialog(macro: Macro, tick: Int, onClose: () -> Unit) {
+fun PermGuideDialog(macro: Macro, tick: Int, onClose: () -> Unit, onBackToFeed: () -> Unit = {}) {
     val context = LocalContext.current
     val keys = remember(tick, macro) { missingPermKeys(context, listOf(macro)) }
     AlertDialog(
@@ -950,6 +841,9 @@ fun PermGuideDialog(macro: Macro, tick: Int, onClose: () -> Unit) {
                     Text("全部そろったよ。これで「${macro.name}」が動きます。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
                 } else {
                     Text("「${macro.name}」を動かすには、この許可が要ります。今ここで済ませると、最初の実行が失敗しません。", color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
+                    // 手続きより先に「戻る」導線を出す（C-3）：許可はあとからでもできる
+                    PrimaryButton("まずフィードに戻る", modifier = Modifier.fillMaxWidth()) { onBackToFeed() }
+                    Text("許可は、あとからマイセットの「権限チェック」でもできます。", color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp)
                     MissingPermRows(listOf(macro), tick)
                 }
             }
@@ -983,7 +877,7 @@ fun TileAction(text: String, modifier: Modifier = Modifier, onClick: () -> Unit)
 }
 
 @Composable
-fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, justAdded: Boolean = false, onTryNow: () -> Unit = {}) {
     // 案A「グラス進化」（2026-11-22 本人採用）：自動化を2列タイルで見せる。世界観は Simple Glass のまま
     Box(Modifier.fillMaxSize().glass(24, if (highlighted) Palette.PinkBg else Palette.GlassCard).padding(14.dp)) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1002,6 +896,12 @@ fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
                 TileAction("テスト", Modifier.weight(1f)) { onTest() }
                 TileAction("編集", Modifier.weight(1f)) { onEdit() }
                 TileAction("削除", Modifier.weight(1f)) { onDelete() }
+            }
+            if (justAdded) {
+                // 追加直後だけ、その場で体感できる主ボタンを出す（C-4）
+                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp)).background(solidBrush(Palette.Pink)).pressable { onTryNow() }.padding(vertical = 11.dp), contentAlignment = Alignment.Center) {
+                    Text("▶ 今すぐ試す", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
             }
         }
     }
