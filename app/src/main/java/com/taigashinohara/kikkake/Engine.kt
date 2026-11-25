@@ -27,7 +27,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.provider.Settings
-import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -663,7 +662,6 @@ object Engine {
                 ActionType.REPEAT -> { } // 展開済みなのでここには来ない
             }
         }
-        if (blocked && !anyOk) Toast.makeText(context, "許可が足りない動作があります。ホームの「権限チェック」から許可してね", Toast.LENGTH_LONG).show()
         if (anyOk) {
             val now = System.currentTimeMillis()
             val store = MacroStore(context)

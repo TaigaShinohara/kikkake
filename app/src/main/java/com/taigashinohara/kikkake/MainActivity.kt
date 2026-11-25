@@ -307,11 +307,24 @@ fun KikkakeApp() {
             val msg = when (r) {
                 Engine.ExecResult.OK -> "動いたよ ✓"
                 Engine.ExecResult.PARTIAL_OK -> "一部の動作は許可が足りなくて動かなかったよ。下の「権限チェック」を見てね"
-                Engine.ExecResult.BLOCKED_BY_PERMISSION -> "許可が足りない動作があったよ。下の「権限チェック」を見てね"
+                Engine.ExecResult.BLOCKED_BY_PERMISSION -> "1つも動かなかったよ。許可が足りないみたい。下の「権限チェック」を見てね"
                 else -> "今は動かせる動作がなかったよ"
             }
             snackbarHost.showSnackbar(msg)
             reload()
+        }
+    }
+
+    // 削除は編集画面（ウィザード）の中から行う。消しても「元に戻す」で取り消せる（v2.13.0でタイルから移設）
+    fun deleteMacro(m: Macro) {
+        Engine.cancelTimeAlarm(context, m)
+        saveMacros(macros.filter { it.id != m.id })
+        scope.launch {
+            val res = snackbarHost.showSnackbar("「${m.name}」を消したよ", actionLabel = "元に戻す", duration = SnackbarDuration.Short)
+            if (res == SnackbarResult.ActionPerformed) {
+                saveMacros(store.load() + m)
+                Engine.scheduleTimeAlarm(context, m); Engine.scheduleSunAlarm(context, m)
+            }
         }
     }
 
@@ -352,6 +365,7 @@ fun KikkakeApp() {
             notifParam = wNotifParam, speakParam = wSpeakParam, onNotifParam = { wNotifParam = it }, onSpeakParam = { wSpeakParam = it }, actionTexts = wActionTexts, onActionText = { t, v -> wActionTexts = wActionTexts + (t to v) }, constraintParam = wConstraintParam, onConstraintParam = { wConstraintParam = it },
             onOpenPicker = { pickerTarget = it },
             onConstraint = { wConstraint = it }, onName = { wName = it },
+            onDelete = if (editingId > 0) { { val m = macros.find { it.id == editingId }; if (m != null) { deleteMacro(m); screen = "home" } } } else null,
             onNext = { if (wStep < 3) wStep++ },
             onBack = { if (wStep > 1) wStep-- else screen = "home" },
             onSave = {
@@ -547,19 +561,7 @@ fun KikkakeApp() {
                                     if (updated.enabled) { Engine.scheduleTimeAlarm(context, updated); Engine.scheduleSunAlarm(context, updated) } else Engine.cancelTimeAlarm(context, updated)
                                 },
                                 onTest = { runTest(m) },
-                                onEdit = { startWizard(m) },
-                                onDelete = {
-                                    Engine.cancelTimeAlarm(context, m)
-                                    val removed = m
-                                    saveMacros(macros.filter { it.id != m.id })
-                                    scope.launch {
-                                        val res = snackbarHost.showSnackbar("「${removed.name}」を消したよ", actionLabel = "元に戻す", duration = SnackbarDuration.Short)
-                                        if (res == SnackbarResult.ActionPerformed) {
-                                            saveMacros(store.load() + removed)
-                                            Engine.scheduleTimeAlarm(context, removed); Engine.scheduleSunAlarm(context, removed)
-                                        }
-                                    }
-                                }
+                                onEdit = { startWizard(m) }
                             )
                         }
                     }
@@ -585,7 +587,7 @@ fun CustomizeScreen(aiKeySet: Boolean, onBack: () -> Unit, onOpenAiSettings: () 
             Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("AIに聞く の設定", fontWeight = FontWeight.Bold, color = Palette.Ink, fontSize = 16.sp)
-                    Text(if (aiKeySet) "APIキーは設定済み。端末内AIを優先して使います。" else "端末内AI（対応端末のみ）が使えます。APIキーを入れると、非対応の端末でもAIに聞けます。", color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp)
+                    Text(if (aiKeySet) "APIキー：設定済み" else "APIキー：未設定", color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp)
                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).pressable { onOpenAiSettings() }.padding(horizontal = 16.dp, vertical = 9.dp)) {
                         Text("設定する", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
@@ -594,7 +596,6 @@ fun CustomizeScreen(aiKeySet: Boolean, onBack: () -> Unit, onOpenAiSettings: () 
             Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("データの管理", fontWeight = FontWeight.Bold, color = Palette.Ink, fontSize = 16.sp)
-                    Text("作った自動化を書き出して控えたり、書き出した文から読み込んだりできます。", color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).pressable { onExport() }.padding(horizontal = 16.dp, vertical = 9.dp)) {
                             Text("書き出し", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -634,7 +635,6 @@ fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Column(Modifier.weight(1f)) {
                     Text("きっかけ", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
-                    Text("おすすめフィード", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Pink)
                 }
                 // ブックマークはピル型ボタンにして、大きい文字設定でも折り返さない（v2.10.0）
                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).clickable { onOpenBookmarks() }.padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -645,8 +645,10 @@ fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -
                 if (showTrial) {
                     item { TrialCard(onPick = onTrialPick, onSkip = onTrialSkip) }
                 }
-                item {
-                    Text("ポストを眺めるように、おすすめの組み合わせをどうぞ。気に入ったら「これを使う」で、そのまま自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
+                if (showTrial) {
+                    item {
+                        Text("気に入ったら「これを使う」で、自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
+                    }
                 }
                 itemsIndexed(Templates) { index, t -> FeedCard(t, index, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, bookmarked = t.macroName in bookmarks, onToggleBookmark = { onToggleBookmark(t) }, needsPerm = permNeeds[t.macroName] == true, modifier = Modifier.animateItem()) }
             }
@@ -712,7 +714,7 @@ fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifie
                     Text(t.trigger.icon, fontSize = 18.sp)
                 }
                 Spacer(Modifier.width(12.dp))
-                Text(t.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = if (index == 0) 19.sp else 17.sp, modifier = Modifier.weight(1f))
+                Text(t.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
                 // あとで見返すためのブックマーク（v2.8.0）
                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(if (bookmarked) Palette.PinkBg else Palette.Line)).pressable { onToggleBookmark() }.padding(horizontal = 11.dp, vertical = 7.dp)) {
                     Text("🔖", fontSize = 15.sp)
@@ -732,13 +734,13 @@ fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifie
                         FeedChip(t.constraintType.label, Palette.PurpleBg, Palette.Purple)
                     }
                 }
-                if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH || t.trigger == TriggerType.APP_CLOSED || t.trigger == TriggerType.LOCATION) Text("※ 約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+                if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH || t.trigger == TriggerType.APP_CLOSED || t.trigger == TriggerType.LOCATION) Text("※ 少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (t.badge.isNotBlank()) {
                         Box(Modifier.clip(RoundedCornerShape(999.dp)).background(solidBrush(Palette.Pink)).padding(horizontal = 10.dp, vertical = 5.dp)) {
-                            Text(t.badge, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(t.badge, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                     if (!added) {
@@ -784,7 +786,7 @@ fun RunLogSection(runLog: String) {
                 if (e.failReason == null) {
                     Text("✓ ${e.name}（$time）", fontSize = 15.sp, color = Palette.Ink, lineHeight = 24.sp)
                 } else {
-                    Text("⚠ ${e.name}（$time）${e.failReason}ので動かなかった", fontSize = 15.sp, color = Palette.Orange, lineHeight = 24.sp)
+                    Text("⚠ ${e.name}（$time）${e.failReason.removeSuffix("なかった")}なくて、動かなかった", fontSize = 15.sp, color = Palette.Orange, lineHeight = 24.sp)
                 }
             }
         }
@@ -803,7 +805,7 @@ fun HelpScreen(onBack: () -> Unit) {
             Text("← もどる", color = Palette.Sky, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onBack() }.padding(8.dp))
         }
         Text("使い方", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
-        Text("自動化は3ステップで作れます。マイセットの「＋ つくる」から始められます。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
+        Text("マイセットの「＋ つくる」から作れます。", fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 24.sp)
         Column {
             HelpStep("1", Palette.Pink, Palette.PinkBg, "きっかけを選ぶ", "「22時になったら」「電池が減ったら」みたいな、始まりの合図。", listOf("⚡ 充電開始", "🕐 22:00", "🔋 電池が少ない"), showLine = true)
             HelpStep("2", Palette.Orange, Palette.OrangeBg, "やることを選ぶ", "静かにする、通知する…。組み合わせもOK。", listOf("🔔 通知を出す", "💬 声で知らせる", "🔦 ライト"), showLine = true)
@@ -812,9 +814,8 @@ fun HelpScreen(onBack: () -> Unit) {
         Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("困ったときは", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Ink)
-                HelpTip("動かない時は、ホーム下の「権限チェック」を見てね。足りない許可があると動きません。")
+                HelpTip("動かない時は、マイセットの「権限チェック」を見てね。足りない許可があると動きません。")
                 HelpTip("電池・Wi-Fi・アプリ起動のきっかけは、約15分ごとにチェックするので少し遅れて動きます。")
-                HelpTip("作った自動化は「▶ テスト実行」ですぐに試せます。結果は「最近の実行」にも残ります。")
             }
         }
         Spacer(Modifier.height(24.dp))
@@ -864,11 +865,7 @@ fun PermissionSection(tick: Int, macros: List<Macro>) {
     if (keys.isEmpty()) return
     Box(Modifier.fillMaxWidth().glass(20, Palette.SkyBg).padding(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("権限チェック", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Palette.Sky)
-                Spacer(Modifier.width(8.dp))
-                Text("足りない許可 ${keys.size}件", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            }
+            Text("権限チェック", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Palette.Sky)
             MissingPermRows(macros, tick, compact = true)
         }
     }
@@ -997,7 +994,7 @@ fun TileAction(text: String, modifier: Modifier = Modifier, onClick: () -> Unit)
 }
 
 @Composable
-fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, justAdded: Boolean = false, onTryNow: () -> Unit = {}) {
+fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: () -> Unit, onEdit: () -> Unit, justAdded: Boolean = false, onTryNow: () -> Unit = {}) {
     // 案A「グラス進化」（2026-11-22 本人採用）：自動化を2列タイルで見せる。世界観は Simple Glass のまま
     Box(Modifier.fillMaxSize().glass(24, if (highlighted) Palette.PinkBg else Palette.GlassCard).padding(14.dp)) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1015,7 +1012,6 @@ fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TileAction("テスト", Modifier.weight(1f)) { onTest() }
                 TileAction("編集", Modifier.weight(1f)) { onEdit() }
-                TileAction("削除", Modifier.weight(1f)) { onDelete() }
             }
             if (justAdded) {
                 // 追加直後だけ、その場で体感できる主ボタンを出す（C-4）
@@ -1068,7 +1064,7 @@ fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit,
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, notifParam: String, speakParam: String, onNotifParam: (String) -> Unit, onSpeakParam: (String) -> Unit, actionTexts: Map<String, String>, onActionText: (String, String) -> Unit, constraintParam: String, onConstraintParam: (String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
+fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, notifParam: String, speakParam: String, onNotifParam: (String) -> Unit, onSpeakParam: (String) -> Unit, actionTexts: Map<String, String>, onActionText: (String, String) -> Unit, constraintParam: String, onConstraintParam: (String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit, onDelete: (() -> Unit)? = null) {
     val context = LocalContext.current
     val apps = rememberApps() ?: emptyList()
     val bondedDevices = remember(triggerName) {
@@ -1165,7 +1161,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                         }
                         OutlinedTextField(value = placeName, onValueChange = { onParam("$mode@$llPart@$it") }, label = { Text("場所の名前（例：家）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.Pink, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
                         if (llPart.isBlank()) Text("場所が決まらないと動きません", color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Text("約15分ごとにチェックするので、少し遅れて動きます（半径200m）", color = Palette.InkSoft, fontSize = 13.sp)
+                        Text("少し遅れて動きます（半径200m）", color = Palette.InkSoft, fontSize = 13.sp)
                     }
                     if (triggerName == TriggerType.BATTERY_LOW.name) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1173,7 +1169,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(v, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
                             }
                         }
-                        Text("約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+                        Text("少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
                     }
                     if (triggerName == TriggerType.BATTERY_RISES.name) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1181,10 +1177,10 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(v, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
                             }
                         }
-                        Text("約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+                        Text("少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
                     }
                     if (triggerName == TriggerType.WIFI_CONNECTED.name) {
-                        Text("約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+                        Text("少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
                     }
                     if (triggerName == TriggerType.BLUETOOTH.name) {
                         Text("つながったら動かす機器（選ばなければ全部）", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -1201,7 +1197,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                         Box(Modifier.fillMaxWidth().pressable { onOpenPicker("trigger") }.glass(20, Palette.GlassCard).padding(16.dp)) {
                             Text(if (selLabel != null) "対象のアプリ：$selLabel（タップで変更）" else "アプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
                         }
-                        Text("約15分ごとにチェックするので、少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+                        Text("少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
                     }
                     if (triggerName == TriggerType.NOTIFICATION_POSTED.name) {
                         val npkg = param.substringBefore("|")
@@ -1329,7 +1325,15 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("できあがり", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Palette.InkSoft)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                                val trigLabel = "${t.icon} ${t.label}" + (if (param.isNotBlank() && t != TriggerType.APP_LAUNCH) "（$param）" else "")
+                                // プレビューには生のパラメータ文字列（sunset@35.6,… や曜日コード）を出さず、読める形に整形する（v2.13.0）
+                                val trigLabel = when (t) {
+                                    TriggerType.SUN_EVENT -> "${t.icon} " + if (param.startsWith("sunrise")) "日の出" else "日の入り"
+                                    TriggerType.TIME -> { val days = Logic.timeDaysOf(param); val dayStr = if (days != null && days.size < 7) "・" + days.sorted().joinToString("") { d -> listOf("", "日", "月", "火", "水", "木", "金", "土")[d] } else ""; "${t.icon} ${t.label}（${param.substringBefore("@")}$dayStr）" }
+                                    TriggerType.LOCATION -> "${t.icon} ${t.label}" + (param.split("@").getOrNull(2)?.takeIf { it.isNotBlank() }?.let { "（$it）" } ?: "")
+                                    TriggerType.APP_LAUNCH, TriggerType.APP_CLOSED -> "${t.icon} ${t.label}" + (apps.firstOrNull { it.pkg == param }?.label?.let { "（$it）" } ?: "")
+                                    TriggerType.NOTIFICATION_POSTED -> { val inner = listOf(apps.firstOrNull { it.pkg == param.substringBefore("|") }?.label ?: "", param.substringAfter("|", "")).filter { it.isNotBlank() }.joinToString("・"); "${t.icon} ${t.label}" + if (inner.isNotBlank()) "（$inner）" else "" }
+                                    else -> "${t.icon} ${t.label}" + if (param.isNotBlank()) "（$param）" else ""
+                                }
                                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PinkBg)).padding(horizontal = 12.dp, vertical = 4.dp)) { Text(trigLabel, color = Palette.Pink, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
                                 Text("→", color = Palette.InkSoft)
                                 items.forEach { item ->
@@ -1343,6 +1347,10 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                         }
                     }
                     if (saveBlocked) Text("設定が終わっていないので、まだ保存できません。もどって決めてね。", color = Palette.Orange, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    if (isEditing && onDelete != null) {
+                        // 削除はタイルから外し、編集の中に畳んだ（危険な操作を主操作と並べない。v2.13.0）
+                        Text("この自動化を削除する", color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.clickable { onDelete() }.padding(vertical = 4.dp))
+                    }
                 }
             }
         }

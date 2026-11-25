@@ -73,7 +73,23 @@ class ScreenFlowTest {
         // タイルの操作ラベル（v2.2.5 で自動縮小に差し替えた所）が描かれていること
         rule.onAllNodesWithText("テスト").onFirst().assertIsDisplayed()
         rule.onAllNodesWithText("編集").onFirst().assertIsDisplayed()
-        rule.onAllNodesWithText("削除").onFirst().assertIsDisplayed()
+        // 削除はタイルに無い（v2.13.0で編集の中へ畳んだ）
+        rule.onAllNodesWithText("削除").fetchSemanticsNodes().isEmpty()
+    }
+
+    @Test
+    fun wizard_delete_livesInEditStep3() {
+        setApp(onboardingDone = true, withMacros = true)
+        rule.onNodeWithText("マイセット", substring = true).performClick()
+        // 1つ目のタイル（見すぎストッパー）の「編集」から入る
+        rule.onAllNodesWithText("編集").onFirst().performClick()
+        rule.onNodeWithText("いつ動かす？").assertIsDisplayed()
+        rule.onNodeWithText("次へ").performClick()
+        rule.onNodeWithText("次へ").performClick()
+        // Step3に削除導線があり、押すとマイセットへ戻ってタイルが消える
+        rule.onNodeWithText("この自動化を削除する").performScrollTo().performClick()
+        rule.waitUntil(timeoutMillis = 5_000) { rule.onAllNodesWithText("マイセット").fetchSemanticsNodes().isNotEmpty() }
+        rule.onAllNodesWithText("見すぎストッパー").fetchSemanticsNodes().isEmpty()
     }
 
     @Test
@@ -148,8 +164,8 @@ class ScreenFlowTest {
         // v2.6.0：起動直後がフィード（ホーム）そのもの
         rule.onNodeWithText("動画の見すぎストッパー").assertIsDisplayed()
         // フィード側も LazyColumn：画面外カードのボタンは bounds 0 で押せないため、先にカードを画面内へ
-        // （フィードの項目 index：0=案内文、1〜=テンプレカード。22時に静かに は 3）
-        rule.onNode(hasScrollAction()).performScrollToIndex(3)
+        // （v2.13.0で案内文の常時表示を廃止したため、項目 index＝テンプレ index。22時に静かに は 2）
+        rule.onNode(hasScrollAction()).performScrollToIndex(2)
         // 先頭2件は投入済みマクロと同名なので「追加済み」。最初の「これを使う」＝22時に静かに
         rule.onAllNodesWithText("これを使う").onFirst().performClick()
         // 追加の保存か、許可ガイドの表示のどちらかが起きるまで待つ（ガイドは少し遅れて出ることがある）
