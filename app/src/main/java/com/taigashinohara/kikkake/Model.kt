@@ -111,6 +111,13 @@ object Logic {
         return if (actions.size == 1) "${trigger.label}で$first" else "${trigger.label}で$first など${actions.size}件"
     }
 
+    // タイル用の短い要約（v2.10.0）：きっかけ＋最初の動作＋「ほかN件」だけ。動作の文面までは出さない
+    fun tileSummary(m: Macro): String {
+        val triggerPart = summary(m).substringBefore(" → ")
+        val first = m.actions.firstOrNull()?.type?.label ?: return triggerPart
+        return if (m.actions.size > 1) "$triggerPart → $first ほか${m.actions.size - 1}件" else "$triggerPart → $first"
+    }
+
     fun summary(m: Macro): String {
         val t = when {
             m.trigger == TriggerType.SUN_EVENT -> if (m.triggerParam.startsWith("sunrise")) "日の出" else "日の入り"

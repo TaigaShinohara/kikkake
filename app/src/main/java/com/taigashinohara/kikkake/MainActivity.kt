@@ -196,19 +196,26 @@ class MainActivity : ComponentActivity() {
 
 data class AppEntry(val label: String, val pkg: String)
 
+fun loadInstalledApps(context: Context): List<AppEntry> {
+    return try {
+        val pm = context.packageManager
+        pm.getInstalledApplications(PackageManager.GET_META_DATA)
+            .filter { pm.getLaunchIntentForPackage(it.packageName) != null && it.packageName != context.packageName }
+            .map { AppEntry(pm.getApplicationLabel(it).toString(), it.packageName) }
+            .sortedBy { it.label }
+            .take(200)
+    } catch (e: Exception) { emptyList() }
+}
+
+// アプリ一覧は裏で読み込む（v2.10.0）。以前は画面を開く瞬間に全アプリを同期で数えて固まっていた。
+// 戻り値が null の間は読み込み中。
 @Composable
-fun rememberApps(): List<AppEntry> {
+fun rememberApps(): List<AppEntry>? {
     val context = LocalContext.current
-    return remember {
-        try {
-            val pm = context.packageManager
-            pm.getInstalledApplications(PackageManager.GET_META_DATA)
-                .filter { pm.getLaunchIntentForPackage(it.packageName) != null && it.packageName != context.packageName }
-                .map { AppEntry(pm.getApplicationLabel(it).toString(), it.packageName) }
-                .sortedBy { it.label }
-                .take(200)
-        } catch (e: Exception) { emptyList() }
+    val apps by produceState<List<AppEntry>?>(null, context) {
+        value = withContext(Dispatchers.IO) { loadInstalledApps(context) }
     }
+    return apps
 }
 
 @Composable
@@ -593,11 +600,14 @@ fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -
     Box(Modifier.fillMaxSize().statusBarsPadding()) {
         Column(Modifier.fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("きっかけ", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
-                Spacer(Modifier.width(10.dp))
-                Text("おすすめフィード", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Pink)
-                Spacer(Modifier.weight(1f))
-                Text("🔖 ブックマーク" + if (bookmarks.isNotEmpty()) "（${bookmarks.size}）" else "", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.clickable { onOpenBookmarks() }.padding(horizontal = 6.dp, vertical = 8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("きっかけ", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                    Text("おすすめフィード", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Pink)
+                }
+                // ブックマークはピル型ボタンにして、大きい文字設定でも折り返さない（v2.10.0）
+                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).clickable { onOpenBookmarks() }.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Text("🔖 ブックマーク" + if (bookmarks.isNotEmpty()) "（${bookmarks.size}）" else "", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, softWrap = false)
+                }
             }
             LazyColumn(contentPadding = PaddingValues(bottom = 110.dp), modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (showTrial) {
@@ -830,10 +840,13 @@ fun PermissionSection(tick: Int, macros: List<Macro>) {
     val keys = remember(tick, macros) { missingPermKeys(context, macros) }
     if (keys.isEmpty()) return
     Box(Modifier.fillMaxWidth().glass(20, Palette.SkyBg).padding(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("権限チェック", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Sky)
-            Text("あなたの自動化に必要な許可だけを表示しています。足りない許可があると、その動作は動きません。", fontSize = 15.sp, color = Palette.Ink, lineHeight = 24.sp)
-            MissingPermRows(macros, tick)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("権限チェック", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Palette.Sky)
+                Spacer(Modifier.width(8.dp))
+                Text("足りない許可 ${keys.size}件", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+            MissingPermRows(macros, tick, compact = true)
         }
     }
 }
@@ -856,41 +869,41 @@ fun missingPermKeys(context: Context, macros: List<Macro>): Set<String> {
 
 // 足りない許可だけを行で出す（行き先で何をするかの一言つき、B-3）
 @Composable
-fun MissingPermRows(macros: List<Macro>, tick: Int) {
+fun MissingPermRows(macros: List<Macro>, tick: Int, compact: Boolean = false) {
     val context = LocalContext.current
     val keys = remember(tick, macros) { missingPermKeys(context, macros) }
-    if ("notif" in keys) PermRow("通知", "「通知を出す」に必要", "開いた画面で「通知」をオンにしてね") {
+    if ("notif" in keys) PermRow("通知", "「通知を出す」に必要", "開いた画面で「通知」をオンにしてね", compact = compact) {
         val i = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply { putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName) }
         context.startActivity(i)
     }
-    if ("dnd" in keys) PermRow("マナーモードの許可", "着信音の変更に必要", "開いた一覧で『きっかけ』を選んでオンにしてね") {
+    if ("dnd" in keys) PermRow("マナーモードの許可", "着信音の変更に必要", "開いた一覧で『きっかけ』を選んでオンにしてね", compact = compact) {
         context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
     }
-    if ("write" in keys) PermRow("明るさ変更の許可", "画面の明るさ変更に必要", "開いた画面でスイッチをオンにしてね") {
+    if ("write" in keys) PermRow("明るさ変更の許可", "画面の明るさ変更に必要", "開いた画面でスイッチをオンにしてね", compact = compact) {
         val i = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply { data = Uri.parse("package:" + context.packageName) }
         context.startActivity(i)
     }
-    if ("exact" in keys) PermRow("正確なアラームの許可", "時刻きっかけを正確に動かすために必要", "開いた画面で許可してね") {
+    if ("exact" in keys) PermRow("正確なアラームの許可", "時刻きっかけを正確に動かすために必要", "開いた画面で許可してね", compact = compact) {
         if (Build.VERSION.SDK_INT >= 31) {
             val i = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply { data = Uri.parse("package:" + context.packageName) }
             context.startActivity(i)
         }
     }
-    if ("usage" in keys) PermRow("使用状況へのアクセス", "「アプリを開いたら」きっかけに必要", "開いた一覧で『きっかけ』を選んで許可してね") {
+    if ("usage" in keys) PermRow("使用状況へのアクセス", "「アプリを開いたら」きっかけに必要", "開いた一覧で『きっかけ』を選んで許可してね", compact = compact) {
         context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
     }
-    if ("location" in keys) PermRow("位置情報", "「場所」「日の出・日の入り」に必要", "開いた画面で『権限』→『位置情報』を「常に許可」にしてね") {
+    if ("location" in keys) PermRow("位置情報", "「場所」「日の出・日の入り」に必要", "開いた画面で『権限』→『位置情報』を「常に許可」にしてね", compact = compact) {
         val i = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = Uri.parse("package:" + context.packageName) }
         context.startActivity(i)
     }
-    if ("bt" in keys) PermRow("Bluetooth", "「Bluetooth」きっかけに必要", "開いた画面で『権限』→『近くのデバイス』を許可してね") {
+    if ("bt" in keys) PermRow("Bluetooth", "「Bluetooth」きっかけに必要", "開いた画面で『権限』→『近くのデバイス』を許可してね", compact = compact) {
         val i = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = Uri.parse("package:" + context.packageName) }
         context.startActivity(i)
     }
-    if ("notiflisten" in keys) PermRow("通知へのアクセス", "「通知が来たら」に必要", "開いた一覧で『きっかけ』をオンにしてね") {
+    if ("notiflisten" in keys) PermRow("通知へのアクセス", "「通知が来たら」に必要", "開いた一覧で『きっかけ』をオンにしてね", compact = compact) {
         context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
-    if ("calendar" in keys) PermRow("カレンダー", "「予定を追加」に必要", "開いた画面で『権限』→『カレンダー』を許可してね") {
+    if ("calendar" in keys) PermRow("カレンダー", "「予定を追加」に必要", "開いた画面で『権限』→『カレンダー』を許可してね", compact = compact) {
         val i = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = Uri.parse("package:" + context.packageName) }
         context.startActivity(i)
     }
@@ -922,8 +935,20 @@ fun PermGuideDialog(macro: Macro, tick: Int, onClose: () -> Unit, onBackToFeed: 
 }
 
 @Composable
-fun PermRow(title: String, desc: String, howto: String = "", onClick: () -> Unit) {
-    // 横並びだと狭いダイアログで説明文がボタンに押し潰されるため、縦並び（ボタンは下・右寄せ）にする
+fun PermRow(title: String, desc: String, howto: String = "", compact: Boolean = false, onClick: () -> Unit) {
+    if (compact) {
+        // マイセットの権限チェック用：フィード並みの情報量に絞った横並び（タイトル＋行き先の一言＋ボタン）
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                if (howto.isNotBlank()) Text(howto, color = Palette.Sky, fontSize = 12.sp, lineHeight = 18.sp)
+            }
+            Spacer(Modifier.width(10.dp))
+            Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = Palette.Sky), shape = RoundedCornerShape(999.dp)) { Text("許可する", fontSize = 13.sp, color = Color.White) }
+        }
+        return
+    }
+    // ダイアログ内は横並びだと説明文がボタンに押し潰されるため、縦並び（ボタンは下・右寄せ）にする
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         Text(desc, color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp)
@@ -954,7 +979,7 @@ fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
                 Text(macro.trigger.icon, fontSize = 19.sp)
             }
             Text(macro.name, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 22.sp, maxLines = 2)
-            Text(Logic.summary(macro), color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp)
+            Text(Logic.tileSummary(macro), color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp, maxLines = 3)
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if (macro.enabled) "オン" else "オフ", color = if (macro.enabled) Palette.Pink else Palette.InkSoft, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -979,7 +1004,8 @@ fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
 @Composable
 fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
-    val apps = rememberApps()
+    val appsState = rememberApps()
+    val apps = appsState ?: emptyList()
     var query by remember { mutableStateOf("") }
     val shown = if (query.isBlank()) apps else apps.filter { it.label.contains(query, ignoreCase = true) }
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1008,7 +1034,8 @@ fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit,
                 }
             }
         }
-        if (apps.isEmpty()) Text("アプリ一覧が取得できませんでした", color = Palette.InkSoft, fontSize = 13.sp)
+        if (appsState == null) Text("読み込み中…", color = Palette.InkSoft, fontSize = 13.sp)
+        else if (apps.isEmpty()) Text("アプリ一覧が取得できませんでした", color = Palette.InkSoft, fontSize = 13.sp)
         else if (shown.isEmpty()) Text("「$query」に合うアプリが見つかりませんでした", color = Palette.InkSoft, fontSize = 13.sp)
     }
 }
@@ -1017,7 +1044,7 @@ fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit,
 @Composable
 fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set<String>, launchParam: String, constraintName: String, name: String, isEditing: Boolean, onTrigger: (String) -> Unit, onParam: (String) -> Unit, onToggleAction: (String) -> Unit, onLaunchParam: (String) -> Unit, notifParam: String, speakParam: String, onNotifParam: (String) -> Unit, onSpeakParam: (String) -> Unit, actionTexts: Map<String, String>, onActionText: (String, String) -> Unit, constraintParam: String, onConstraintParam: (String) -> Unit, onOpenPicker: (String) -> Unit, onConstraint: (String) -> Unit, onName: (String) -> Unit, onNext: () -> Unit, onBack: () -> Unit, onSave: () -> Unit) {
     val context = LocalContext.current
-    val apps = rememberApps()
+    val apps = rememberApps() ?: emptyList()
     val bondedDevices = remember(triggerName) {
         if (triggerName == TriggerType.BLUETOOTH.name) {
             try {

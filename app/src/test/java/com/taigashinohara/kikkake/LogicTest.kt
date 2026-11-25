@@ -45,6 +45,13 @@ class LogicTest {
         val s = Logic.summary(m)
         assertTrue(s.contains("22:00")); assertTrue(s.contains("マナーモード")); assertTrue(s.contains("明るさを下げる")); assertTrue(s.contains("平日だけ"))
     }
+    @Test fun tileSummary_isShort() {
+        // タイル要約は「きっかけ → 最初の動作 ほかN件」だけ。動作の文面（薬を飲む等）は出さない
+        val m = Macro(1, "test", TriggerType.CHARGING_START, "", listOf(ActionItem(ActionType.NOTIFICATION, "薬を飲む"), ActionItem(ActionType.VIBRATE), ActionItem(ActionType.FLASHLIGHT)), ConstraintType.NONE)
+        val s = Logic.tileSummary(m)
+        assertTrue(s.contains("充電開始")); assertTrue(s.contains("通知を出す")); assertTrue(s.contains("ほか2件"))
+        assertFalse(s.contains("薬を飲む"))
+    }
     @Test fun summary_includesMessageParam() {
         val m = Macro(1, "test", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.NOTIFICATION, "薬を飲む")))
         assertTrue(Logic.summary(m).contains("薬を飲む"))
