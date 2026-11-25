@@ -74,6 +74,25 @@ object Engine {
     fun isNotificationListenerEnabled(context: Context): Boolean =
         androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
 
+    // 許可の状態を1回だけまとめて読むスナップショット（v2.11.0）。
+    // 以前はテンプレ51件ぶん missingPermKeys を回すたびに全チェックを繰り返していた。
+    data class PermState(
+        val notif: Boolean, val dnd: Boolean, val write: Boolean, val exact: Boolean,
+        val usage: Boolean, val location: Boolean, val calendar: Boolean, val bt: Boolean, val notiflisten: Boolean
+    )
+
+    fun snapshotPermState(context: Context): PermState = PermState(
+        notif = hasNotificationPermission(context),
+        dnd = hasDndAccess(context),
+        write = canWriteSettings(context),
+        exact = canExactAlarm(context),
+        usage = hasUsageAccess(context),
+        location = hasLocationPermission(context),
+        calendar = hasCalendarPermission(context),
+        bt = hasBluetoothPermission(context),
+        notiflisten = isNotificationListenerEnabled(context)
+    )
+
     // 最後に分かっている現在地（GPS→ネットワークの順）。取れなければ null
     fun lastKnownLatLng(context: Context): Pair<Double, Double>? {
         if (!hasLocationPermission(context)) return null

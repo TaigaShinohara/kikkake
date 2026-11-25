@@ -45,6 +45,14 @@ class LogicTest {
         val s = Logic.summary(m)
         assertTrue(s.contains("22:00")); assertTrue(s.contains("マナーモード")); assertTrue(s.contains("明るさを下げる")); assertTrue(s.contains("平日だけ"))
     }
+    @Test fun missingPermKeys_pure() {
+        // スナップショット版は純粋判定：全部そろっていれば空、通知だけ欠ければ notif だけ
+        val all = Engine.PermState(notif = true, dnd = true, write = true, exact = true, usage = true, location = true, calendar = true, bt = true, notiflisten = true)
+        val m = Macro(1, "test", TriggerType.TIME, "22:00", listOf(ActionItem(ActionType.NOTIFICATION)), ConstraintType.NONE)
+        assertTrue(missingPermKeys(listOf(m), all).isEmpty())
+        val noNotif = all.copy(notif = false)
+        assertTrue(missingPermKeys(listOf(m), noNotif) == setOf("notif"))
+    }
     @Test fun tileSummary_isShort() {
         // タイル要約は「きっかけ → 最初の動作 ほかN件」だけ。動作の文面（薬を飲む等）は出さない
         val m = Macro(1, "test", TriggerType.CHARGING_START, "", listOf(ActionItem(ActionType.NOTIFICATION, "薬を飲む"), ActionItem(ActionType.VIBRATE), ActionItem(ActionType.FLASHLIGHT)), ConstraintType.NONE)

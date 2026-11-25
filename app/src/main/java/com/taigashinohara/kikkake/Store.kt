@@ -7,8 +7,17 @@ import org.json.JSONObject
 class MacroStore(context: Context) {
     private val prefs = context.getSharedPreferences("macros", Context.MODE_PRIVATE)
 
+    companion object {
+        // 解析結果のキャッシュ（v2.11.0）：保存内容が同じなら JSON を読み直さない。
+        // 監視ワーカーや受け口が短時間に何度も load() するため
+        private val cacheLock = Any()
+        private var cachedRaw: String? = null
+        private var cachedList: List<Macro> = emptyList()
+    }
+
     fun load(): List<Macro> {
         val raw = prefs.getString("list", "[]") ?: "[]"
+        synchronized(cacheLock) { if (raw == cachedRaw) return ArrayList(cachedList) }
         val arr = JSONArray(raw)
         val out = mutableListOf<Macro>()
         for (i in 0 until arr.length()) {
@@ -39,6 +48,7 @@ class MacroStore(context: Context) {
                 )
             )
         }
+        synchronized(cacheLock) { cachedRaw = raw; cachedList = out }
         return out
     }
 
@@ -53,7 +63,9 @@ class MacroStore(context: Context) {
                 put("constraint", m.constraintType.name); put("constraintParam", m.constraintParam); put("enabled", m.enabled); put("lastRunAt", m.lastRunAt)
             })
         }
-        prefs.edit().putString("list", arr.toString()).apply()
+        val raw = arr.toString()
+        prefs.edit().putString("list", raw).apply()
+        synchronized(cacheLock) { cachedRaw = raw; cachedList = list }
     }
 }
 

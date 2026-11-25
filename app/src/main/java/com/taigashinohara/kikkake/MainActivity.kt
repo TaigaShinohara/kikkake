@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.util.LruCache
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -195,6 +196,9 @@ class MainActivity : ComponentActivity() {
 }
 
 data class AppEntry(val label: String, val pkg: String)
+
+// アプリアイコンのキャッシュ（v2.11.0）：選択画面を開くたびに作り直さない
+val AppIconCache = LruCache<String, androidx.compose.ui.graphics.ImageBitmap>(300)
 
 fun loadInstalledApps(context: Context): List<AppEntry> {
     return try {
@@ -669,7 +673,8 @@ val FeedAccents = listOf(
 @Composable
 fun rememberPermNeeds(): Map<String, Boolean> {
     val context = LocalContext.current
-    return remember { Templates.associate { t -> t.macroName to missingPermKeys(context, listOf(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType))).isNotEmpty() } }
+    // 許可チェックはスナップショット1回だけ。51件ぶんシステムへ聞き直さない（v2.11.0）
+    return remember { val s = Engine.snapshotPermState(context); Templates.associate { t -> t.macroName to missingPermKeys(listOf(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType)), s).isNotEmpty() } }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -852,18 +857,21 @@ fun PermissionSection(tick: Int, macros: List<Macro>) {
 }
 
 // 足りない許可のキー一覧（保存直後の案内と共通で使う）
-fun missingPermKeys(context: Context, macros: List<Macro>): Set<String> {
+fun missingPermKeys(context: Context, macros: List<Macro>): Set<String> = missingPermKeys(macros, Engine.snapshotPermState(context))
+
+// スナップショット版：システムへの問い合わせは含まない純粋な判定（v2.11.0）
+fun missingPermKeys(macros: List<Macro>, s: Engine.PermState): Set<String> {
     val keys = mutableSetOf<String>()
-    if (macros.any { m -> m.actions.any { it.type == ActionType.NOTIFICATION } } && !Engine.hasNotificationPermission(context)) keys += "notif"
-    if (macros.any { m -> m.actions.any { it.type == ActionType.SILENT || it.type == ActionType.SILENT_OFF || it.type == ActionType.DND_ON || it.type == ActionType.DND_OFF } } && !Engine.hasDndAccess(context)) keys += "dnd"
-    if (macros.any { m -> m.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP || it.type == ActionType.ROTATE_OFF || it.type == ActionType.ROTATE_ON || it.type == ActionType.SCREEN_KEEP } } && !Engine.canWriteSettings(context)) keys += "write"
-    if (macros.any { it.trigger == TriggerType.TIME } && !Engine.canExactAlarm(context)) keys += "exact"
-    if (macros.any { it.trigger == TriggerType.APP_LAUNCH } && !Engine.hasUsageAccess(context)) keys += "usage"
-    if (macros.any { it.trigger == TriggerType.APP_CLOSED } && !Engine.hasUsageAccess(context)) keys += "usage"
-    if ((macros.any { it.trigger == TriggerType.LOCATION || it.trigger == TriggerType.SUN_EVENT } || macros.any { m -> m.actions.any { it.type == ActionType.LOCATION_NOTIFY || it.type == ActionType.WEATHER_NOTIFY } }) && !Engine.hasLocationPermission(context)) keys += "location"
-    if (macros.any { m -> m.actions.any { it.type == ActionType.CALENDAR_ADD } } && !Engine.hasCalendarPermission(context)) keys += "calendar"
-    if (macros.any { it.trigger == TriggerType.BLUETOOTH } && !Engine.hasBluetoothPermission(context)) keys += "bt"
-    if (macros.any { it.trigger == TriggerType.NOTIFICATION_POSTED } && !Engine.isNotificationListenerEnabled(context)) keys += "notiflisten"
+    if (macros.any { m -> m.actions.any { it.type == ActionType.NOTIFICATION } } && !s.notif) keys += "notif"
+    if (macros.any { m -> m.actions.any { it.type == ActionType.SILENT || it.type == ActionType.SILENT_OFF || it.type == ActionType.DND_ON || it.type == ActionType.DND_OFF } } && !s.dnd) keys += "dnd"
+    if (macros.any { m -> m.actions.any { it.type == ActionType.BRIGHTNESS_DOWN || it.type == ActionType.BRIGHTNESS_UP || it.type == ActionType.ROTATE_OFF || it.type == ActionType.ROTATE_ON || it.type == ActionType.SCREEN_KEEP } } && !s.write) keys += "write"
+    if (macros.any { it.trigger == TriggerType.TIME } && !s.exact) keys += "exact"
+    if (macros.any { it.trigger == TriggerType.APP_LAUNCH } && !s.usage) keys += "usage"
+    if (macros.any { it.trigger == TriggerType.APP_CLOSED } && !s.usage) keys += "usage"
+    if ((macros.any { it.trigger == TriggerType.LOCATION || it.trigger == TriggerType.SUN_EVENT } || macros.any { m -> m.actions.any { it.type == ActionType.LOCATION_NOTIFY || it.type == ActionType.WEATHER_NOTIFY } }) && !s.location) keys += "location"
+    if (macros.any { m -> m.actions.any { it.type == ActionType.CALENDAR_ADD } } && !s.calendar) keys += "calendar"
+    if (macros.any { it.trigger == TriggerType.BLUETOOTH } && !s.bt) keys += "bt"
+    if (macros.any { it.trigger == TriggerType.NOTIFICATION_POSTED } && !s.notiflisten) keys += "notiflisten"
     return keys
 }
 
@@ -1018,12 +1026,12 @@ fun AppPickerScreen(title: String, selected: String, onSelect: (String) -> Unit,
             items(shown, key = { it.pkg }) { app ->
                 val sel = selected == app.pkg
                 val iconBmp = remember(app.pkg) {
-                    try {
+                    AppIconCache.get(app.pkg) ?: try {
                         val d = context.packageManager.getApplicationIcon(app.pkg)
                         val bmp = Bitmap.createBitmap(72, 72, Bitmap.Config.ARGB_8888)
                         val canvas = Canvas(bmp)
                         d.setBounds(0, 0, 72, 72); d.draw(canvas)
-                        bmp.asImageBitmap()
+                        bmp.asImageBitmap().also { AppIconCache.put(app.pkg, it) }
                     } catch (e: Exception) { null }
                 }
                 Box(Modifier.fillMaxWidth().pressable { onSelect(app.pkg) }.glass(16, if (sel) Palette.PinkBg else Palette.GlassCard).padding(16.dp)) {
