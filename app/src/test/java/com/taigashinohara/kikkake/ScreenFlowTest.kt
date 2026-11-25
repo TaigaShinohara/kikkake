@@ -120,6 +120,29 @@ class ScreenFlowTest {
     }
 
     @Test
+    fun myset_customize_absorbsSettings() {
+        // v2.12.0：設定関連はカスタマイズ画面へ集約。マイセットには置かない
+        setApp(onboardingDone = true, withMacros = true)
+        rule.onNodeWithText("マイセット", substring = true).performClick()
+        rule.onNodeWithText("カスタマイズ").assertIsDisplayed()
+        rule.onNodeWithText("その他の設定").assertDoesNotExist()
+        rule.onNodeWithText("カスタマイズ").performClick()
+        rule.onNodeWithText("AIに聞く の設定").assertIsDisplayed()
+        rule.onNodeWithText("データの管理").assertIsDisplayed()
+        rule.onNodeWithText("書き出し").assertIsDisplayed()
+        rule.onNodeWithText("読み込み").assertIsDisplayed()
+    }
+
+    @Test
+    fun myset_bookmarks_reachable() {
+        // v2.12.0：ブックマークへマイセットからも行ける
+        setApp(onboardingDone = true, withMacros = true)
+        rule.onNodeWithText("マイセット", substring = true).performClick()
+        rule.onNodeWithText("ブックマーク", substring = true).performClick()
+        rule.onNodeWithText("まだブックマークがないよ", substring = true).assertIsDisplayed()
+    }
+
+    @Test
     fun feed_useTemplate_addsMacroToMySet() {
         setApp(onboardingDone = true, withMacros = true)
         // v2.6.0：起動直後がフィード（ホーム）そのもの

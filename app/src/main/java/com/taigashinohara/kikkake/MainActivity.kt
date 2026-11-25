@@ -83,9 +83,10 @@ object Palette {
     var GlassCardTop = Color.White.copy(alpha = 0.62f)
     var GlassCardBottom = Color.White.copy(alpha = 0.54f)
     var InputFace = Color.White.copy(alpha = 0.84f)
+    // 背景の光は主役ピンクの濃淡だけに統一（v2.12.0：色に意味のない虹色の光をやめる）
     var BlobA = Color(0xFFF8BBD0)
-    var BlobB = Color(0xFFFFCC80)
-    var BlobC = Color(0xFF81D4FA)
+    var BlobB = Color(0xFFFCE7F1)
+    var BlobC = Color(0xFFF5A8C0)
 
     fun applyDark(dark: Boolean) {
         if (dark) {
@@ -100,7 +101,7 @@ object Palette {
             GlassCardTop = Color.White.copy(alpha = 0.19f)
             GlassCardBottom = Color.White.copy(alpha = 0.13f)
             InputFace = Color.White.copy(alpha = 0.20f)
-            BlobA = Color(0xFF4E2438); BlobB = Color(0xFF4E2E1C); BlobC = Color(0xFF16303F)
+            BlobA = Color(0xFF4E2438); BlobB = Color(0xFF3D2230); BlobC = Color(0xFF5A2A40)
         }
     }
 }
@@ -150,7 +151,7 @@ fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean 
 @Composable
 fun AppBackground() {
     // 光は放射グラデーション（中心→透明）で描く。blur はレイヤーの端で切れて硬い継ぎ目になるため使わない（v1.5.2）
-    val base = Brush.verticalGradient(listOf(Palette.Paper, androidx.compose.ui.graphics.lerp(Palette.Paper, Palette.PinkBg, 0.38f), androidx.compose.ui.graphics.lerp(Palette.Paper, Palette.SkyBg, 0.32f)))
+    val base = Brush.verticalGradient(listOf(Palette.Paper, androidx.compose.ui.graphics.lerp(Palette.Paper, Palette.PinkBg, 0.38f), androidx.compose.ui.graphics.lerp(Palette.Paper, Palette.PinkBg, 0.30f)))
     Box(Modifier.fillMaxSize().background(base)) {
         Box(Modifier.size(430.dp).offset(x = (-110).dp, y = (-90).dp).background(Brush.radialGradient(listOf(Palette.BlobA, Color.Transparent))))
         Box(Modifier.size(380.dp).offset(x = 230.dp, y = 590.dp).background(Brush.radialGradient(listOf(Palette.BlobB, Color.Transparent))))
@@ -230,9 +231,9 @@ fun KikkakeApp() {
     var macros by remember { mutableStateOf(store.load()) }
     // v2.7.0：初回でも講義を挟まずフィード直行（C-2）。試し置きはフィード先頭のカードで受ける
     var screen by rememberSaveable { mutableStateOf("feed") }
+    var bookmarksReturn by remember { mutableStateOf("feed") }
     var trialDone by remember { mutableStateOf(stateStore.trialDone) }
     var tryNowId by remember { mutableStateOf(-1L) }
-    var showMoreSettings by remember { mutableStateOf(false) }
     // フィードのブックマーク（テンプレの macroName の集合、v2.8.0）
     var bookmarks by remember { mutableStateOf(stateStore.bookmarks) }
     val toggleBookmark: (Template) -> Unit = { t ->
@@ -441,13 +442,28 @@ fun KikkakeApp() {
         }
     }
 
+    if (screen == "customize") {
+        BackHandler { screen = "home" }
+        CustomizeScreen(
+            aiKeySet = StateStore(context).aiApiKey.isNotBlank(),
+            onBack = { screen = "home" },
+            onOpenAiSettings = { aiKeyInput = StateStore(context).aiApiKey; showAiSettings = true },
+            onExport = {
+                val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, exportJson(macros)) }
+                context.startActivity(Intent.createChooser(send, "自動化を書き出す"))
+            },
+            onOpenImport = { importText = ""; showImport = true }
+        )
+        return
+    }
+
     if (screen == "bookmarks") {
         BookmarksScreen(
             macros = macros,
             bookmarks = bookmarks,
             onUse = useTemplate,
             onToggleBookmark = toggleBookmark,
-            onBack = { screen = "feed" }
+            onBack = { screen = bookmarksReturn }
         )
         return
     }
@@ -473,7 +489,7 @@ fun KikkakeApp() {
             onOpenMySet = { screen = "home" },
             bookmarks = bookmarks,
             onToggleBookmark = toggleBookmark,
-            onOpenBookmarks = { screen = "bookmarks" }
+            onOpenBookmarks = { bookmarksReturn = "feed"; screen = "bookmarks" }
         )
         return
     }
@@ -497,8 +513,15 @@ fun KikkakeApp() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("マイセット", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                     Spacer(Modifier.weight(1f))
+                    // 設定関連はカスタマイズ画面へ集約（v2.12.0）
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).clickable { screen = "customize" }.padding(horizontal = 14.dp, vertical = 9.dp)) {
+                        Text("カスタマイズ", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, softWrap = false)
+                    }
+                    Spacer(Modifier.width(4.dp))
                     Text("使い方", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { screen = "help" }.padding(horizontal = 8.dp, vertical = 10.dp))
                 }
+                // ブックマークはマイセットからも行けるように（v2.12.0）
+                Text("🔖 ブックマーク" + if (bookmarks.isNotEmpty()) "（${bookmarks.size}）" else "", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.clickable { bookmarksReturn = "home"; screen = "bookmarks" }.padding(vertical = 6.dp))
             }
             if (macros.isEmpty()) {
                 item {
@@ -545,38 +568,43 @@ fun KikkakeApp() {
             }
             item { RunLogSection(stateStore.runLog) }
             item { PermissionSection(resumeTick, macros) }
-            item {
-                // 管理系（AIキー・書き出し・読み込み）は畳んで奥へ（I-3）。着地直後の主役はタイルと「次を眺める」導線だけにする
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(Modifier.fillMaxWidth().clickable { showMoreSettings = !showMoreSettings }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("その他の設定", fontWeight = FontWeight.Bold, color = Palette.InkSoft, fontSize = 15.sp)
-                        Spacer(Modifier.weight(1f))
-                        Text(if (showMoreSettings) "閉じる ▴" else "開く ▾", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            item { Spacer(Modifier.height(88.dp)) }
+        }
+    }
+}
+
+// カスタマイズ画面（v2.12.0）：設定関連をマイセットから集約。色は「設定・情報＝水色」で統一する
+@Composable
+fun CustomizeScreen(aiKeySet: Boolean, onBack: () -> Unit, onOpenAiSettings: () -> Unit, onExport: () -> Unit, onOpenImport: () -> Unit) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 20.dp)) {
+        Spacer(Modifier.height(12.dp))
+        Text("← マイセット", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { onBack() }.padding(vertical = 6.dp))
+        Text("カスタマイズ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+        Spacer(Modifier.height(16.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("AIに聞く の設定", fontWeight = FontWeight.Bold, color = Palette.Ink, fontSize = 16.sp)
+                    Text(if (aiKeySet) "APIキーは設定済み。端末内AIを優先して使います。" else "端末内AI（対応端末のみ）が使えます。APIキーを入れると、非対応の端末でもAIに聞けます。", color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp)
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).pressable { onOpenAiSettings() }.padding(horizontal = 16.dp, vertical = 9.dp)) {
+                        Text("設定する", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
-                    if (showMoreSettings) {
-                        val keySet = remember(resumeTick) { StateStore(context).aiApiKey.isNotBlank() }
-                        Column(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("AIに聞く の設定", fontWeight = FontWeight.Bold, color = Palette.Ink, fontSize = 16.sp)
-                            Text(if (keySet) "APIキーは設定済み。端末内AIを優先して使います。" else "端末内AI（対応端末のみ）が使えます。APIキーを入れると、非対応の端末でもAIに聞けます。", color = Palette.InkSoft, fontSize = 13.sp)
-                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PurpleBg)).pressable { aiKeyInput = StateStore(context).aiApiKey; showAiSettings = true }.padding(horizontal = 16.dp, vertical = 9.dp)) {
-                                Text("設定する", color = Palette.Purple, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
+                }
+            }
+            Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("データの管理", fontWeight = FontWeight.Bold, color = Palette.Ink, fontSize = 16.sp)
+                    Text("作った自動化を書き出して控えたり、書き出した文から読み込んだりできます。", color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).pressable { onExport() }.padding(horizontal = 16.dp, vertical = 9.dp)) {
+                            Text("書き出し", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).pressable {
-                                val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, exportJson(macros)) }
-                                context.startActivity(Intent.createChooser(send, "自動化を書き出す"))
-                            }.padding(horizontal = 16.dp, vertical = 9.dp)) {
-                                Text("書き出し", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
-                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).pressable { importText = ""; showImport = true }.padding(horizontal = 16.dp, vertical = 9.dp)) {
-                                Text("読み込み", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).pressable { onOpenImport() }.padding(horizontal = 16.dp, vertical = 9.dp)) {
+                            Text("読み込み", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
                 }
             }
-            item { Spacer(Modifier.height(88.dp)) }
         }
     }
 }
@@ -639,7 +667,7 @@ fun BookmarksScreen(macros: List<Macro>, bookmarks: Set<String>, onUse: (Templat
     Box(Modifier.fillMaxSize().statusBarsPadding()) {
         Column(Modifier.fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("← フィード", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { onBack() }.padding(vertical = 6.dp))
+                Text("← もどる", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { onBack() }.padding(vertical = 6.dp))
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                 Text("ブックマーク", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
@@ -661,14 +689,6 @@ fun BookmarksScreen(macros: List<Macro>, bookmarks: Set<String>, onUse: (Templat
     }
 }
 
-// フィードのカードごとに色を巡回させて、眺めるのが楽しくなるようにする（ピンク→オレンジ→紫→水色）
-val FeedAccents = listOf(
-    Palette.Pink to Palette.PinkBg,
-    Palette.Orange to Palette.OrangeBg,
-    Palette.Purple to Palette.PurpleBg,
-    Palette.Sky to Palette.SkyBg
-)
-
 // テンプレ全件の許可要否を一括で先に計算する（カードごとに判定を回さない＝フィードの軽量化、v2.9.0）
 @Composable
 fun rememberPermNeeds(): Map<String, Boolean> {
@@ -682,15 +702,13 @@ fun rememberPermNeeds(): Map<String, Boolean> {
 fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifier: Modifier = Modifier, bookmarked: Boolean = false, onToggleBookmark: () -> Unit = {}, needsPerm: Boolean = false) {
     // 仕組み（フローのチップ列・遅延の注意書き）は畳んでおき、タップで開く（v2.8.0・本人の「文字が多い」指摘）
     var expanded by remember { mutableStateOf(false) }
-    val accent = FeedAccents[index % FeedAccents.size]
-    val nextAccent = FeedAccents[(index + 1) % FeedAccents.size]
     Box(modifier.fillMaxWidth().glass(20, Palette.GlassCard)) {
         Column {
-            // 上端のグラデーション帯（カードごとに色が変わる）
-            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 12.dp).height(5.dp).clip(RoundedCornerShape(999.dp)).background(Brush.horizontalGradient(listOf(accent.first, nextAccent.first))))
+            // 上端の帯は全カード共通でピンク→オレンジ（きっかけ→やること、という中身の流れを色で表す。v2.12.0で色巡回を廃止）
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 12.dp).height(5.dp).clip(RoundedCornerShape(999.dp)).background(Brush.horizontalGradient(listOf(Palette.Pink, Palette.Orange))))
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(accent.second)).padding(10.dp)) {
+                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PinkBg)).padding(10.dp)) {
                     Text(t.trigger.icon, fontSize = 18.sp)
                 }
                 Spacer(Modifier.width(12.dp))
@@ -704,7 +722,7 @@ fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifie
             Text(if (expanded) "仕組みを閉じる ▴" else "仕組みを見る ▾", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 2.dp))
             if (expanded) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FeedChip("${t.trigger.icon} ${t.trigger.label}" + if (t.param.isNotBlank() && !t.param.contains(".")) " ${t.param}" else "", accent.second, accent.first)
+                    FeedChip("${t.trigger.icon} ${t.trigger.label}" + if (t.param.isNotBlank() && !t.param.contains(".")) " ${t.param}" else "", Palette.PinkBg, Palette.Pink)
                     t.actions.forEach { a ->
                         Text("→", color = Palette.InkSoft, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp))
                         FeedChip("${a.type.icon} ${a.type.label}", Palette.OrangeBg, Palette.Orange)
@@ -719,7 +737,7 @@ fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifie
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (t.badge.isNotBlank()) {
-                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(solidBrush(accent.first)).padding(horizontal = 10.dp, vertical = 5.dp)) {
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(solidBrush(Palette.Pink)).padding(horizontal = 10.dp, vertical = 5.dp)) {
                             Text(t.badge, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
@@ -833,7 +851,7 @@ fun HelpStep(num: String, color: Color, bg: Color, title: String, desc: String, 
 @Composable
 fun HelpTip(text: String) {
     Row {
-        Box(Modifier.padding(top = 8.dp).size(7.dp).clip(RoundedCornerShape(999.dp)).background(Palette.Sky))
+        Box(Modifier.padding(top = 8.dp).size(7.dp).clip(RoundedCornerShape(999.dp)).background(Palette.InkSoft))
         Spacer(Modifier.width(10.dp))
         Text(text, color = Palette.Ink, fontSize = 15.sp, lineHeight = 24.sp)
     }
@@ -1270,7 +1288,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 listOf("2回", "3回", "5回").forEach { v ->
                                     val sel = (actionTexts[t.name] ?: "2回") == v
-                                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Purple) else tintBrush(Palette.Line)).clickable { onActionText(t.name, v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Orange) else tintBrush(Palette.Line)).clickable { onActionText(t.name, v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
                                 }
                             }
                         }
