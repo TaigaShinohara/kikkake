@@ -10,3 +10,4 @@ local.properties
 # Secrets (never commit)
 .env
 .kotlin/
+*.hprof

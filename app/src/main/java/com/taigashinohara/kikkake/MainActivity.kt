@@ -32,6 +32,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -798,9 +799,10 @@ fun hapticFeedback(view: View, strong: Boolean) {
     view.performHapticFeedback(c)
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HelpScreen(onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("← もどる", color = Palette.Sky, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onBack() }.padding(8.dp))
         }
@@ -809,7 +811,7 @@ fun HelpScreen(onBack: () -> Unit) {
         Column {
             HelpStep("1", Palette.Pink, Palette.PinkBg, "きっかけを選ぶ", "「22時になったら」「電池が減ったら」みたいな、始まりの合図。", listOf("⚡ 充電開始", "🕐 22:00", "🔋 電池が少ない"), showLine = true)
             HelpStep("2", Palette.Orange, Palette.OrangeBg, "やることを選ぶ", "静かにする、通知する…。組み合わせもOK。", listOf("🔔 通知を出す", "💬 声で知らせる", "🔦 ライト"), showLine = true)
-            HelpStep("3", Palette.Purple, Palette.PurpleBg, "保存するだけ", "あとはスマホがやってくれる。作ったら「▶ テスト」で試せます。", emptyList(), showLine = false)
+            HelpStep("3", Palette.Purple, Palette.PurpleBg, "保存するだけ", "あとはスマホがやってくれる。作ったら「テスト」で試せます。", emptyList(), showLine = false)
         }
         Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -823,6 +825,7 @@ fun HelpScreen(onBack: () -> Unit) {
 }
 
 // 使い方画面のステップ1件分（v1.6.1：番号チップ＋縦の線で流れを見せる）
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HelpStep(num: String, color: Color, bg: Color, title: String, desc: String, examples: List<String>, showLine: Boolean) {
     Row(Modifier.height(IntrinsicSize.Min).then(if (showLine) Modifier.padding(bottom = 20.dp) else Modifier)) {
@@ -837,10 +840,10 @@ fun HelpStep(num: String, color: Color, bg: Color, title: String, desc: String, 
             Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Palette.Ink)
             Text(desc, fontSize = 14.sp, color = Palette.InkSoft, lineHeight = 21.sp)
             if (examples.isNotEmpty()) {
-                Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     examples.forEach { ex ->
                         Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(bg)).padding(horizontal = 10.dp, vertical = 3.dp)) {
-                            Text(ex, color = color, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(ex, color = color, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                         }
                     }
                 }
@@ -1081,7 +1084,7 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
         (triggerName == TriggerType.NOTIFICATION_POSTED.name && param.substringBefore("|").isBlank()) ||
         (triggerName == TriggerType.LOCATION.name && param.split("@").getOrNull(1).isNullOrBlank()) ||
         (triggerName == TriggerType.SUN_EVENT.name && param.split("@").getOrNull(1).isNullOrBlank())
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("① きっかけ" to Palette.Pink, "② やること" to Palette.Orange, "③ 仕上げ" to Palette.Purple).forEachIndexed { idx, (label, color) ->
                 val active = idx + 1 == step
@@ -1101,117 +1104,8 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                             Box(Modifier.fillMaxWidth().pressable { onTrigger(t.name) }.glass(20, if (selected) Palette.PinkBg else Palette.GlassCard).padding(16.dp)) {
                                 Column { Text("${t.icon} ${t.label}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (selected) Palette.Pink else Palette.Ink); if (t.detail.isNotEmpty()) Text(t.detail, color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp) }
                             }
-                        }
-                    }
-                    if (triggerName == TriggerType.TIME.name) {
-                        val timePart = param.substringBefore("@")
-                        val tparts = timePart.split(":"); val curH = tparts.getOrNull(0)?.toIntOrNull() ?: 22; val curM = tparts.getOrNull(1)?.toIntOrNull() ?: 0
-                        fun setTime(h: Int, m: Int) { val d = Logic.timeDaysOf(param); onParam("%02d:%02d".format(h, m) + if (d == null) "" else "@" + d.sorted().joinToString("")) }
-                        Text("時刻：${"%02d:%02d".format(curH, curM)}", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            (0..23).forEach { h ->
-                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (curH == h) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { setTime(h, curM) }.padding(horizontal = 12.dp, vertical = 8.dp)) { Text("${h}時", color = if (curH == h) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
-                            }
-                        }
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            (0..55 step 5).forEach { m ->
-                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (curM == m) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { setTime(curH, m) }.padding(horizontal = 12.dp, vertical = 8.dp)) { Text("${m}分", color = if (curM == m) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
-                            }
-                        }
-                        Text("曜日（全部オンなら毎日）", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf(1 to "日", 2 to "月", 3 to "火", 4 to "水", 5 to "木", 6 to "金", 7 to "土").forEach { (d, label) ->
-                                val curSet = Logic.timeDaysOf(param) ?: setOf(1, 2, 3, 4, 5, 6, 7)
-                                val on = curSet.contains(d)
-                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (on) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable {
-                                    val ns = curSet.toMutableSet(); if (ns.contains(d)) ns.remove(d) else ns.add(d)
-                                    onParam(timePart + if (ns.isEmpty() || ns.size == 7) "" else "@" + ns.sorted().joinToString(""))
-                                }.padding(horizontal = 11.dp, vertical = 8.dp)) { Text(label, color = if (on) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
-                            }
-                        }
-                    }
-                    if (triggerName == TriggerType.SUN_EVENT.name) {
-                        val mode = param.substringBefore("@"); val llPart = param.substringAfter("@", "")
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("sunrise" to "日の出", "sunset" to "日の入り").forEach { (v, label) ->
-                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (mode == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v + if (llPart.isNotBlank()) "@$llPart" else "") }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(label, color = if (mode == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
-                            }
-                        }
-                        Box(Modifier.fillMaxWidth().pressable {
-                            val ll = Engine.lastKnownLatLng(context)
-                            if (ll != null) onParam("$mode@${ll.first},${ll.second}") else Toast.makeText(context, "位置が取れなかった。位置情報を許可してね", Toast.LENGTH_LONG).show()
-                        }.glass(20, Palette.GlassCard).padding(16.dp)) {
-                            Text(if (llPart.isNotBlank()) "場所は設定済み（タップで更新）" else "今いる場所を使う（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
-                        }
-                        if (llPart.isBlank()) Text("場所が決まらないと、日の出・日の入りは計算できません", color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                    if (triggerName == TriggerType.LOCATION.name) {
-                        val lparts = param.split("@")
-                        val mode = lparts.getOrNull(0) ?: "arrive"; val llPart = lparts.getOrNull(1) ?: ""; val placeName = lparts.getOrNull(2) ?: ""
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("arrive" to "着いたら", "leave" to "離れたら").forEach { (v, label) ->
-                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (mode == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam("$v@$llPart@$placeName") }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(label, color = if (mode == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
-                            }
-                        }
-                        Box(Modifier.fillMaxWidth().pressable {
-                            val ll = Engine.lastKnownLatLng(context)
-                            if (ll != null) onParam("$mode@${ll.first},${ll.second}@$placeName") else Toast.makeText(context, "位置が取れなかった。位置情報を許可してね", Toast.LENGTH_LONG).show()
-                        }.glass(20, Palette.GlassCard).padding(16.dp)) {
-                            Text(if (llPart.isNotBlank()) "場所は設定済み（タップで更新）" else "今いる場所を使う（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
-                        }
-                        OutlinedTextField(value = placeName, onValueChange = { onParam("$mode@$llPart@$it") }, label = { Text("場所の名前（例：家）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.Pink, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
-                        if (llPart.isBlank()) Text("場所が決まらないと動きません", color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Text("少し遅れて動きます（半径200m）", color = Palette.InkSoft, fontSize = 13.sp)
-                    }
-                    if (triggerName == TriggerType.BATTERY_LOW.name) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("10%", "20%", "30%", "50%").forEach { v ->
-                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(v, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
-                            }
-                        }
-                        Text("少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
-                    }
-                    if (triggerName == TriggerType.BATTERY_RISES.name) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("50%", "80%", "100%").forEach { v ->
-                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(v, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
-                            }
-                        }
-                        Text("少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
-                    }
-                    if (triggerName == TriggerType.WIFI_CONNECTED.name) {
-                        Text("少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
-                    }
-                    if (triggerName == TriggerType.BLUETOOTH.name) {
-                        Text("つながったら動かす機器（選ばなければ全部）", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param.isBlank()) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam("") }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text("すべて", color = if (param.isBlank()) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
-                            bondedDevices.forEach { (devName, addr) ->
-                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == addr) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(addr) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(devName, color = if (param == addr) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
-                            }
-                        }
-                        if (bondedDevices.isEmpty()) Text("機器の名前を出すには許可が要ります。保存後の案内で許可できます（「すべて」なら今でも動きます）", color = Palette.InkSoft, fontSize = 13.sp)
-                    }
-                    if (triggerName == TriggerType.APP_LAUNCH.name || triggerName == TriggerType.APP_CLOSED.name) {
-                        val selLabel = apps.firstOrNull { it.pkg == param }?.label
-                        Box(Modifier.fillMaxWidth().pressable { onOpenPicker("trigger") }.glass(20, Palette.GlassCard).padding(16.dp)) {
-                            Text(if (selLabel != null) "対象のアプリ：$selLabel（タップで変更）" else "アプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
-                        }
-                        Text("少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
-                    }
-                    if (triggerName == TriggerType.NOTIFICATION_POSTED.name) {
-                        val npkg = param.substringBefore("|")
-                        val selLabel = apps.firstOrNull { it.pkg == npkg }?.label
-                        Box(Modifier.fillMaxWidth().pressable { onOpenPicker("trigger") }.glass(20, Palette.GlassCard).padding(16.dp)) {
-                            Text(if (selLabel != null) "対象のアプリ：$selLabel（タップで変更）" else "アプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
-                        }
-                        OutlinedTextField(value = param.substringAfter("|", ""), onValueChange = { onParam("$npkg|$it") }, label = { Text("キーワード（空なら全部の通知）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.Pink, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
-                        Text("メール・メッセージ・お支払いの通知も、ここで拾えます", color = Palette.InkSoft, fontSize = 13.sp)
-                    }
-                    if (triggerName == TriggerType.DND_STATE.name || triggerName == TriggerType.POWER_SAVE.name || triggerName == TriggerType.AIRPLANE.name) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("on" to "ONになったら", "off" to "OFFになったら").forEach { (v, label) ->
-                                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(label, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                            if (selected) {
+                                TriggerDetailEditor(t, param, apps, bondedDevices, onParam, onOpenPicker)
                             }
                         }
                     }
@@ -1236,65 +1130,8 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
                                     if (selected) Text("✓", color = Palette.Orange, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                 }
                             }
-                        }
-                    }
-                    if (actionNames.contains(ActionType.NOTIFICATION.name)) {
-                        OutlinedTextField(value = notifParam, onValueChange = onNotifParam, label = { Text("通知の文（空なら「実行しました」）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.InkSoft, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
-                    }
-                    if (actionNames.contains(ActionType.SPEAK.name)) {
-                        OutlinedTextField(value = speakParam, onValueChange = onSpeakParam, label = { Text("読み上げる文（空なら「実行しました」）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.InkSoft, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
-                    }
-                    if (actionNames.contains(ActionType.LAUNCH_APP.name)) {
-                        val selLabel = apps.firstOrNull { it.pkg == launchParam }?.label
-                        Box(Modifier.fillMaxWidth().pressable { onOpenPicker("action") }.glass(20, Palette.GlassCard).padding(16.dp)) {
-                            Text(if (selLabel != null) "起動するアプリ：$selLabel（タップで変更）" else "起動するアプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Orange, fontSize = 15.sp)
-                        }
-                    }
-                    ActionType.values().filter { actionNames.contains(it.name) }.forEach { t ->
-                        val fieldLabel = when (t) {
-                            ActionType.OPEN_URL -> "開くURL"
-                            ActionType.SHARE_TEXT -> "共有するテキスト"
-                            ActionType.SMS_COMPOSE -> "メッセージの本文"
-                            ActionType.CALENDAR_ADD -> "予定のタイトル"
-                            ActionType.MEMO_SAVE -> "保存するメモ"
-                            ActionType.CLIPBOARD_COPY -> "コピーするテキスト"
-                            ActionType.WEB_REQUEST -> "送るURL（https://…）"
-                            ActionType.AI_ASK -> "AIへの質問"
-                            ActionType.VIDEO_PLAY -> "動画のURL"
-                            ActionType.PLAYLIST_PLAY -> "プレイリストのURL"
-                            ActionType.WIDGET_SET -> "表示する文字"
-                            ActionType.COMMAND_RUN -> "コマンド"
-                            ActionType.JS_RUN -> "JavaScript"
-                            else -> null
-                        }
-                        if (fieldLabel != null) {
-                            OutlinedTextField(value = actionTexts[t.name] ?: "", onValueChange = { onActionText(t.name, it) }, label = { Text(fieldLabel) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.Pink, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
-                        }
-                        if (t == ActionType.WALLPAPER) {
-                            Text("壁紙の色", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("黒", "白", "ピンク", "水色", "紫", "オレンジ").forEach { v ->
-                                    val sel = (actionTexts[t.name] ?: "黒") == v
-                                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Orange) else tintBrush(Palette.Line)).clickable { onActionText(t.name, v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
-                                }
-                            }
-                        }
-                        if (t == ActionType.REPEAT) {
-                            Text("繰り返す回数", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("2回", "3回", "5回").forEach { v ->
-                                    val sel = (actionTexts[t.name] ?: "2回") == v
-                                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Orange) else tintBrush(Palette.Line)).clickable { onActionText(t.name, v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
-                                }
-                            }
-                        }
-                        if (t == ActionType.WAIT) {
-                            Text("待つ長さ", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("10秒", "30秒", "1分", "5分").forEach { v ->
-                                    val sel = (actionTexts[t.name] ?: "30秒") == v
-                                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Orange) else tintBrush(Palette.Line)).clickable { onActionText(t.name, v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
-                                }
+                            if (selected) {
+                                ActionDetailEditor(a, apps, launchParam, notifParam, speakParam, actionTexts, onNotifParam, onSpeakParam, onActionText, onOpenPicker)
                             }
                         }
                     }
@@ -1358,6 +1195,217 @@ fun WizardScreen(step: Int, triggerName: String, param: String, actionNames: Set
             OutlinedButton(onClick = onBack, shape = RoundedCornerShape(999.dp), modifier = Modifier.weight(1f)) { Text("もどる", fontSize = 15.sp, color = Palette.Pink) }
             if (step < 3) PrimaryButton("次へ", modifier = Modifier.weight(1f)) { onNext() }
             else PrimaryButton("保存する", modifier = Modifier.weight(1f), enabled = !saveBlocked) { onSave() }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TriggerDetailEditor(
+    trigger: TriggerType,
+    param: String,
+    apps: List<AppEntry>,
+    bondedDevices: List<Pair<String, String>>,
+    onParam: (String) -> Unit,
+    onOpenPicker: (String) -> Unit
+) {
+    val context = LocalContext.current
+    Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        when (trigger) {
+            TriggerType.TIME -> {
+                val timePart = param.substringBefore("@")
+                val tparts = timePart.split(":"); val curH = tparts.getOrNull(0)?.toIntOrNull() ?: 22; val curM = tparts.getOrNull(1)?.toIntOrNull() ?: 0
+                fun setTime(h: Int, m: Int) { val d = Logic.timeDaysOf(param); onParam("%02d:%02d".format(h, m) + if (d == null) "" else "@" + d.sorted().joinToString("")) }
+                val hourState = rememberLazyListState(initialFirstVisibleItemIndex = (curH - 1).coerceAtLeast(0))
+                val minState = rememberLazyListState(initialFirstVisibleItemIndex = ((curM / 5) - 1).coerceAtLeast(0))
+                Text("時刻：${"%02d:%02d".format(curH, curM)}", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                LazyRow(state = hourState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items((0..23).toList()) { h ->
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (curH == h) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { setTime(h, curM) }.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            Text("${h}時", color = if (curH == h) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                }
+                LazyRow(state = minState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items((0..55 step 5).toList()) { m ->
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (curM == m) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { setTime(curH, m) }.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            Text("${m}分", color = if (curM == m) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                }
+                Text("曜日（全部オンなら毎日）", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(1 to "日", 2 to "月", 3 to "火", 4 to "水", 5 to "木", 6 to "金", 7 to "土").forEach { (d, label) ->
+                        val curSet = Logic.timeDaysOf(param) ?: setOf(1, 2, 3, 4, 5, 6, 7)
+                        val on = curSet.contains(d)
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (on) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable {
+                            val ns = curSet.toMutableSet(); if (ns.contains(d)) ns.remove(d) else ns.add(d)
+                            onParam(timePart + if (ns.isEmpty() || ns.size == 7) "" else "@" + ns.sorted().joinToString(""))
+                        }.padding(horizontal = 11.dp, vertical = 8.dp)) { Text(label, color = if (on) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                    }
+                }
+            }
+            TriggerType.SUN_EVENT -> {
+                val mode = param.substringBefore("@"); val llPart = param.substringAfter("@", "")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("sunrise" to "日の出", "sunset" to "日の入り").forEach { (v, label) ->
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (mode == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v + if (llPart.isNotBlank()) "@$llPart" else "") }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(label, color = if (mode == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                    }
+                }
+                Box(Modifier.fillMaxWidth().pressable {
+                    val ll = Engine.lastKnownLatLng(context)
+                    if (ll != null) onParam("$mode@${ll.first},${ll.second}") else Toast.makeText(context, "位置が取れなかった。位置情報を許可してね", Toast.LENGTH_LONG).show()
+                }.glass(20, Palette.GlassCard).padding(16.dp)) {
+                    Text(if (llPart.isNotBlank()) "場所は設定済み（タップで更新）" else "今いる場所を使う（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
+                }
+                if (llPart.isBlank()) Text("場所が決まらないと、日の出・日の入りは計算できません", color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+            TriggerType.LOCATION -> {
+                val lparts = param.split("@")
+                val mode = lparts.getOrNull(0) ?: "arrive"; val llPart = lparts.getOrNull(1) ?: ""; val placeName = lparts.getOrNull(2) ?: ""
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("arrive" to "着いたら", "leave" to "離れたら").forEach { (v, label) ->
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (mode == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam("$v@$llPart@$placeName") }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(label, color = if (mode == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                    }
+                }
+                Box(Modifier.fillMaxWidth().pressable {
+                    val ll = Engine.lastKnownLatLng(context)
+                    if (ll != null) onParam("$mode@${ll.first},${ll.second}@$placeName") else Toast.makeText(context, "位置が取れなかった。位置情報を許可してね", Toast.LENGTH_LONG).show()
+                }.glass(20, Palette.GlassCard).padding(16.dp)) {
+                    Text(if (llPart.isNotBlank()) "場所は設定済み（タップで更新）" else "今いる場所を使う（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
+                }
+                OutlinedTextField(value = placeName, onValueChange = { onParam("$mode@$llPart@$it") }, label = { Text("場所の名前（例：家）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.Pink, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
+                if (llPart.isBlank()) Text("場所が決まらないと動きません", color = Palette.Orange, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text("少し遅れて動きます（半径200m）", color = Palette.InkSoft, fontSize = 13.sp)
+            }
+            TriggerType.BATTERY_LOW -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("10%", "20%", "30%", "50%").forEach { v ->
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(v, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                    }
+                }
+                Text("少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+            }
+            TriggerType.BATTERY_RISES -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("50%", "80%", "100%").forEach { v ->
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(v, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                    }
+                }
+                Text("少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+            }
+            TriggerType.WIFI_CONNECTED -> {
+                Text("少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+            }
+            TriggerType.BLUETOOTH -> {
+                Text("つながったら動かす機器（選ばなければ全部）", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param.isBlank()) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam("") }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text("すべて", color = if (param.isBlank()) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                    bondedDevices.forEach { (devName, addr) ->
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == addr) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(addr) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(devName, color = if (param == addr) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                    }
+                }
+                if (bondedDevices.isEmpty()) Text("機器の名前を出すには許可が要ります。保存後の案内で許可できます（「すべて」なら今でも動きます）", color = Palette.InkSoft, fontSize = 13.sp)
+            }
+            TriggerType.APP_LAUNCH, TriggerType.APP_CLOSED -> {
+                val selLabel = apps.firstOrNull { it.pkg == param }?.label
+                Box(Modifier.fillMaxWidth().pressable { onOpenPicker("trigger") }.glass(20, Palette.GlassCard).padding(16.dp)) {
+                    Text(if (selLabel != null) "対象のアプリ：$selLabel（タップで変更）" else "アプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
+                }
+                Text("少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
+            }
+            TriggerType.NOTIFICATION_POSTED -> {
+                val npkg = param.substringBefore("|")
+                val selLabel = apps.firstOrNull { it.pkg == npkg }?.label
+                Box(Modifier.fillMaxWidth().pressable { onOpenPicker("trigger") }.glass(20, Palette.GlassCard).padding(16.dp)) {
+                    Text(if (selLabel != null) "対象のアプリ：$selLabel（タップで変更）" else "アプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Pink, fontSize = 15.sp)
+                }
+                OutlinedTextField(value = param.substringAfter("|", ""), onValueChange = { onParam("$npkg|$it") }, label = { Text("キーワード（空なら全部の通知）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Pink, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.Pink, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
+                Text("メール・メッセージ・お支払いの通知も、ここで拾えます", color = Palette.InkSoft, fontSize = 13.sp)
+            }
+            TriggerType.DND_STATE, TriggerType.POWER_SAVE, TriggerType.AIRPLANE -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("on" to "ONになったら", "off" to "OFFになったら").forEach { (v, label) ->
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (param == v) solidBrush(Palette.Pink) else tintBrush(Palette.Line)).clickable { onParam(v) }.padding(horizontal = 16.dp, vertical = 8.dp)) { Text(label, color = if (param == v) Color.White else Palette.Ink, fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+            else -> {}
+        }
+    }
+}
+
+@Composable
+private fun ActionDetailEditor(
+    action: ActionType,
+    apps: List<AppEntry>,
+    launchParam: String,
+    notifParam: String,
+    speakParam: String,
+    actionTexts: Map<String, String>,
+    onNotifParam: (String) -> Unit,
+    onSpeakParam: (String) -> Unit,
+    onActionText: (String, String) -> Unit,
+    onOpenPicker: (String) -> Unit
+) {
+    Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        when (action) {
+            ActionType.NOTIFICATION -> OutlinedTextField(value = notifParam, onValueChange = onNotifParam, label = { Text("通知の文（空なら「実行しました」）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Orange, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.InkSoft, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
+            ActionType.SPEAK -> OutlinedTextField(value = speakParam, onValueChange = onSpeakParam, label = { Text("読み上げる文（空なら「実行しました」）") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Orange, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.InkSoft, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
+            ActionType.LAUNCH_APP -> {
+                val selLabel = apps.firstOrNull { it.pkg == launchParam }?.label
+                Box(Modifier.fillMaxWidth().pressable { onOpenPicker("action") }.glass(20, Palette.GlassCard).padding(16.dp)) {
+                    Text(if (selLabel != null) "起動するアプリ：$selLabel（タップで変更）" else "起動するアプリを選ぶ（必須）", fontWeight = FontWeight.Bold, color = Palette.Orange, fontSize = 15.sp)
+                }
+            }
+            ActionType.WALLPAPER -> {
+                Text("壁紙の色", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("黒", "白", "ピンク", "水色", "紫", "オレンジ").forEach { v ->
+                        val sel = (actionTexts[action.name] ?: "黒") == v
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Orange) else tintBrush(Palette.Line)).clickable { onActionText(action.name, v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                    }
+                }
+            }
+            ActionType.REPEAT -> {
+                Text("繰り返す回数", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("2回", "3回", "5回").forEach { v ->
+                        val sel = (actionTexts[action.name] ?: "2回") == v
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Orange) else tintBrush(Palette.Line)).clickable { onActionText(action.name, v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                    }
+                }
+            }
+            ActionType.WAIT -> {
+                Text("待つ長さ", color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("10秒", "30秒", "1分", "5分").forEach { v ->
+                        val sel = (actionTexts[action.name] ?: "30秒") == v
+                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(if (sel) solidBrush(Palette.Orange) else tintBrush(Palette.Line)).clickable { onActionText(action.name, v) }.padding(horizontal = 14.dp, vertical = 8.dp)) { Text(v, color = if (sel) Color.White else Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                    }
+                }
+            }
+            else -> {
+                val fieldLabel = when (action) {
+                    ActionType.OPEN_URL -> "開くURL"
+                    ActionType.SHARE_TEXT -> "共有するテキスト"
+                    ActionType.SMS_COMPOSE -> "メッセージの本文"
+                    ActionType.CALENDAR_ADD -> "予定のタイトル"
+                    ActionType.MEMO_SAVE -> "保存するメモ"
+                    ActionType.CLIPBOARD_COPY -> "コピーするテキスト"
+                    ActionType.WEB_REQUEST -> "送るURL（https://…）"
+                    ActionType.AI_ASK -> "AIへの質問"
+                    ActionType.VIDEO_PLAY -> "動画のURL"
+                    ActionType.PLAYLIST_PLAY -> "プレイリストのURL"
+                    ActionType.WIDGET_SET -> "表示する文字"
+                    ActionType.COMMAND_RUN -> "コマンド"
+                    ActionType.JS_RUN -> "JavaScript"
+                    else -> null
+                }
+                if (fieldLabel != null) {
+                    OutlinedTextField(value = actionTexts[action.name] ?: "", onValueChange = { onActionText(action.name, it) }, label = { Text(fieldLabel) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.InputFace, unfocusedContainerColor = Palette.InputFace, focusedBorderColor = Palette.Orange, unfocusedBorderColor = Palette.Line, focusedLabelColor = Palette.Orange, unfocusedLabelColor = Palette.InkSoft, focusedTextColor = Palette.Ink, unfocusedTextColor = Palette.Ink))
+                }
+            }
         }
     }
 }
