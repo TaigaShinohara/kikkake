@@ -129,4 +129,41 @@ class LogicTest {
         assertFalse(Logic.constraintOk(ConstraintType.NIGHT, Calendar.MONDAY, 12))
         assertTrue(Logic.constraintOk(ConstraintType.NONE, Calendar.SUNDAY, 12))
     }
+    // 「今日の顔」（v2.14.0）：予定の時刻と参加者の有無だけで判定する
+    private val day0 = 1_731_000_000_000L
+    private fun span(h1: Int, h2: Int, att: Boolean = false) = DayEventSpan(day0 + h1 * 3600_000L, day0 + h2 * 3600_000L, att)
+    @Test fun dayFace_togetherWins() {
+        assertEquals(DayFace.TOGETHER, DayLogic.faceFor(listOf(span(10, 11, att = true)), day0))
+        // 忙しい日でも、誰かと一緒の予定があれば TOGETHER が優先
+        assertEquals(DayFace.TOGETHER, DayLogic.faceFor(listOf(span(9, 10), span(11, 12), span(13, 14, att = true)), day0))
+    }
+    @Test fun dayFace_busyByCountAndMinutes() {
+        assertEquals(DayFace.BUSY, DayLogic.faceFor(listOf(span(9, 10), span(11, 12), span(13, 14)), day0))
+        assertEquals(DayFace.BUSY, DayLogic.faceFor(listOf(span(9, 14)), day0))
+    }
+    @Test fun dayFace_eveningAndOpen() {
+        assertEquals(DayFace.EVENING, DayLogic.faceFor(listOf(span(19, 20)), day0))
+        assertEquals(DayFace.OPEN, DayLogic.faceFor(listOf(span(9, 10)), day0))
+        assertEquals(DayFace.OPEN, DayLogic.faceFor(emptyList(), day0))
+    }
+    @Test fun dayFace_fallbackByWeekdayAndHour() {
+        assertEquals(DayFace.OPEN, DayLogic.fallbackFace(Calendar.SATURDAY, 10))
+        assertEquals(DayFace.OPEN, DayLogic.fallbackFace(Calendar.SUNDAY, 20))
+        assertEquals(DayFace.BUSY, DayLogic.fallbackFace(Calendar.MONDAY, 10))
+        assertEquals(DayFace.EVENING, DayLogic.fallbackFace(Calendar.MONDAY, 19))
+    }
+    @Test fun dayRecommended_picksTaggedAndSkipsAdded() {
+        val rec = DayLogic.recommendedFor(DayFace.BUSY, emptySet())
+        assertEquals(3, rec.size)
+        assertTrue(rec.all { Situation.QUICK in it.situations })
+        val rec2 = DayLogic.recommendedFor(DayFace.BUSY, setOf(rec[0].macroName))
+        assertEquals(3, rec2.size)
+        assertFalse(rec2.any { it.macroName == rec[0].macroName })
+        // どの顔でも3件は候補がある（場面タグの付け忘れ防止）
+        DayFace.values().forEach { f -> assertEquals("face $f", 3, DayLogic.recommendedFor(f, emptySet()).size) }
+    }
+    @Test fun dayStrip_fallbackWording() {
+        assertTrue(DayLogic.stripText(DayFace.BUSY, fromCalendar = false).contains("曜日と時間帯"))
+        assertTrue(DayLogic.stripText(DayFace.OPEN, fromCalendar = true).contains("予定が少なめ"))
+    }
 }

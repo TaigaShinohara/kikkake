@@ -246,6 +246,8 @@ fun KikkakeApp() {
     var tryNowId by remember { mutableStateOf(-1L) }
     // フィードのブックマーク（テンプレの macroName の集合、v2.8.0）
     var bookmarks by remember { mutableStateOf(stateStore.bookmarks) }
+    // 「今日のおすすめ」（カレンダー連動の出し分け、v2.14.0）。既定OFF、ONはカスタマイズ画面から
+    var dayFeedEnabled by remember { mutableStateOf(stateStore.dayFeedEnabled) }
     val toggleBookmark: (Template) -> Unit = { t ->
         val next = if (t.macroName in bookmarks) bookmarks - t.macroName else bookmarks + t.macroName
         bookmarks = next
@@ -476,7 +478,14 @@ fun KikkakeApp() {
                 val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, exportJson(macros)) }
                 context.startActivity(Intent.createChooser(send, "自動化を書き出す"))
             },
-            onOpenImport = { importText = ""; showImport = true }
+            onOpenImport = { importText = ""; showImport = true },
+            dayFeedEnabled = dayFeedEnabled,
+            dayFeedPermMissing = !Engine.hasCalendarReadPermission(context),
+            onToggleDayFeed = { on ->
+                dayFeedEnabled = on
+                stateStore.dayFeedEnabled = on
+                if (on && !Engine.hasCalendarReadPermission(context)) permLauncher.launch(android.Manifest.permission.READ_CALENDAR)
+            }
         )
         return
     }
@@ -513,7 +522,9 @@ fun KikkakeApp() {
             onOpenMySet = { screen = "home" },
             bookmarks = bookmarks,
             onToggleBookmark = toggleBookmark,
-            onOpenBookmarks = { bookmarksReturn = "feed"; screen = "bookmarks" }
+            onOpenBookmarks = { bookmarksReturn = "feed"; screen = "bookmarks" },
+            dayFeedEnabled = dayFeedEnabled,
+            refreshKey = resumeTick
         )
         return
     }
@@ -590,7 +601,7 @@ fun KikkakeApp() {
 
 // カスタマイズ画面（v2.12.0）：設定関連をマイセットから集約。色は「設定・情報＝水色」で統一する
 @Composable
-fun CustomizeScreen(aiKeySet: Boolean, onBack: () -> Unit, onOpenAiSettings: () -> Unit, onExport: () -> Unit, onOpenImport: () -> Unit) {
+fun CustomizeScreen(aiKeySet: Boolean, onBack: () -> Unit, onOpenAiSettings: () -> Unit, onExport: () -> Unit, onOpenImport: () -> Unit, dayFeedEnabled: Boolean = false, dayFeedPermMissing: Boolean = false, onToggleDayFeed: (Boolean) -> Unit = {}) {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(12.dp))
         Text("← マイセット", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.clickable { onBack() }.padding(vertical = 6.dp))
@@ -604,6 +615,16 @@ fun CustomizeScreen(aiKeySet: Boolean, onBack: () -> Unit, onOpenAiSettings: () 
                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).pressable { onOpenAiSettings() }.padding(horizontal = 16.dp, vertical = 9.dp)) {
                         Text("設定する", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
+                }
+            }
+            Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("今日のおすすめ（カレンダー連動）", fontWeight = FontWeight.Bold, color = Palette.Ink, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        Switch(checked = dayFeedEnabled, onCheckedChange = { onToggleDayFeed(it) })
+                    }
+                    Text("ONにすると、その日の予定に合うテンプレがフィードの上に来ます。読むのは予定の時刻と件数だけで、端末の外に送りません。", color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp)
+                    if (dayFeedEnabled && dayFeedPermMissing) Text("カレンダーの許可がもらえていないので、今は曜日と時間帯で選んでいます。", color = Palette.Orange, fontSize = 13.sp, lineHeight = 21.sp)
                 }
             }
             Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
@@ -640,9 +661,58 @@ fun TrialCard(onPick: (String) -> Unit, onSkip: () -> Unit) {
     }
 }
 
+// 「今日のおすすめ」の表示に要る分（ストリップ文面とおすすめ）だけを持つ（v2.14.0）
+data class DayFeedUi(val stripText: String, val recommended: List<Template>)
+
+// その日の予定（外にある理由）から「今日の顔」を決め、おすすめを選ぶ。読めなければ曜日・時間帯の顔に落とす
 @Composable
-fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -> Unit, showTrial: Boolean = false, onTrialPick: (String) -> Unit = {}, onTrialSkip: () -> Unit = {}, bookmarks: Set<String> = emptySet(), onToggleBookmark: (Template) -> Unit = {}, onOpenBookmarks: () -> Unit = {}) {
+fun rememberDayFeed(enabled: Boolean, macros: List<Macro>, refreshKey: Int): DayFeedUi? {
+    val context = LocalContext.current
+    val addedNames = macros.map { it.name }.toSet()
+    val state by produceState<DayFeedUi?>(null, enabled, refreshKey, addedNames) {
+        if (!enabled) {
+            value = null
+            return@produceState
+        }
+        value = withContext(Dispatchers.IO) {
+            val cal = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+            }
+            val dayStart = cal.timeInMillis
+            val events = Engine.readDayEvents(context, dayStart)
+            val face: DayFace
+            val fromCalendar: Boolean
+            if (events != null) {
+                face = DayLogic.faceFor(events, dayStart)
+                fromCalendar = true
+            } else {
+                face = DayLogic.fallbackFace(cal.get(java.util.Calendar.DAY_OF_WEEK), java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY))
+                fromCalendar = false
+            }
+            val rec = DayLogic.recommendedFor(face, addedNames)
+            if (rec.isEmpty()) null else DayFeedUi(DayLogic.stripText(face, fromCalendar), rec)
+        }
+    }
+    return state
+}
+
+// フィード先頭の「今日」ストリップ。なぜ上が変わったかを、事実だけで静かに書く（v2.14.0）
+@Composable
+fun TodayStrip(text: String) {
+    Box(Modifier.fillMaxWidth().glass(20, Palette.SkyBg)) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("🗓", fontSize = 15.sp)
+            Spacer(Modifier.width(8.dp))
+            Text(text, color = Palette.Ink, fontSize = 14.sp, lineHeight = 21.sp)
+        }
+    }
+}
+
+@Composable
+fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -> Unit, showTrial: Boolean = false, onTrialPick: (String) -> Unit = {}, onTrialSkip: () -> Unit = {}, bookmarks: Set<String> = emptySet(), onToggleBookmark: (Template) -> Unit = {}, onOpenBookmarks: () -> Unit = {}, dayFeedEnabled: Boolean = false, refreshKey: Int = 0) {
     val permNeeds = rememberPermNeeds()
+    val dayFeed = rememberDayFeed(dayFeedEnabled, macros, refreshKey)
+    val recNames = dayFeed?.recommended?.map { it.macroName }?.toSet() ?: emptySet()
     Box(Modifier.fillMaxSize().statusBarsPadding()) {
         Column(Modifier.fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
@@ -663,7 +733,12 @@ fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -
                         Text("気に入ったら「これを使う」で、自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
                     }
                 }
-                itemsIndexed(Templates) { index, t -> FeedCard(t, index, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, bookmarked = t.macroName in bookmarks, onToggleBookmark = { onToggleBookmark(t) }, missingKeys = permNeeds[t.macroName] ?: emptySet(), modifier = Modifier.animateItem()) }
+                // 「今日のおすすめ」：ストリップ＋おすすめカードを先頭へ（おすすめは通常の一覧からは抜いて二重に出さない、v2.14.0）
+                if (dayFeed != null) {
+                    item { TodayStrip(dayFeed.stripText) }
+                    itemsIndexed(dayFeed.recommended) { _, t -> FeedCard(t, Templates.indexOf(t), added = false, onUse = { onUse(t) }, bookmarked = t.macroName in bookmarks, onToggleBookmark = { onToggleBookmark(t) }, missingKeys = permNeeds[t.macroName] ?: emptySet(), recommended = true, modifier = Modifier.animateItem()) }
+                }
+                itemsIndexed(Templates.filter { it.macroName !in recNames }) { _, t -> FeedCard(t, Templates.indexOf(t), added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, bookmarked = t.macroName in bookmarks, onToggleBookmark = { onToggleBookmark(t) }, missingKeys = permNeeds[t.macroName] ?: emptySet(), modifier = Modifier.animateItem()) }
             }
         }
         // マイセットへのフロートボタン（画面下部に常時表示）
@@ -749,7 +824,7 @@ fun BookmarkMark(active: Boolean) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifier: Modifier = Modifier, bookmarked: Boolean = false, onToggleBookmark: () -> Unit = {}, missingKeys: Set<String> = emptySet()) {
+fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifier: Modifier = Modifier, bookmarked: Boolean = false, onToggleBookmark: () -> Unit = {}, missingKeys: Set<String> = emptySet(), recommended: Boolean = false) {
     // 仕組み（フローのチップ列・遅延の注意書き）は畳んでおき、タップで開く（v2.8.0・本人の「文字が多い」指摘）
     var expanded by remember { mutableStateOf(false) }
     Box(modifier.fillMaxWidth().glass(20, Palette.GlassCard)) {
@@ -805,6 +880,12 @@ fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifie
                 if (t.badge.isNotBlank()) {
                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(solidBrush(Palette.Pink)).padding(horizontal = 10.dp, vertical = 5.dp)) {
                         Text(t.badge, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+                // 「今日のおすすめ」の印（v2.14.0）。水色＝情報の色で、静かに付ける
+                if (recommended) {
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.SkyBg)).padding(horizontal = 10.dp, vertical = 5.dp)) {
+                        Text("今日のおすすめ", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
                 Spacer(Modifier.weight(1f))

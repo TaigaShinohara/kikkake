@@ -23,10 +23,11 @@ fun KikkakeTestTheme(content: @Composable () -> Unit) {
 }
 
 // 検証用の初期データ。オンボーディング済み＋見本マクロ2件などを仕込む
-fun seedTestData(context: Context, onboardingDone: Boolean, withMacros: Boolean) {
+fun seedTestData(context: Context, onboardingDone: Boolean, withMacros: Boolean, dayFeed: Boolean = false) {
     context.getSharedPreferences("state", Context.MODE_PRIVATE).edit().clear().commit()
     context.getSharedPreferences("macros", Context.MODE_PRIVATE).edit().clear().commit()
     if (onboardingDone) StateStore(context).onboardingDone = true
+    if (dayFeed) StateStore(context).dayFeedEnabled = true
     if (withMacros) {
         MacroStore(context).save(
             listOf(

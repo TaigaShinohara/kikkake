@@ -36,10 +36,21 @@ class ScreenFlowTest {
     @get:Rule
     val rule = createAndroidComposeRule<ComponentActivity>()
 
-    private fun setApp(onboardingDone: Boolean, withMacros: Boolean) {
+    private fun setApp(onboardingDone: Boolean, withMacros: Boolean, dayFeed: Boolean = false) {
         val ctx = ApplicationProvider.getApplicationContext<Context>()
-        seedTestData(ctx, onboardingDone, withMacros)
+        seedTestData(ctx, onboardingDone, withMacros, dayFeed)
         rule.setContent { KikkakeTestTheme { KikkakeApp() } }
+    }
+
+    @Test
+    fun feed_dayFeedOn_showsStripAndRecommended() {
+        // v2.14.0：今日のおすすめONで、ストリップとおすすめ印が出る（テスト環境にカレンダー許可は無いので曜日・時間帯の顔になる）
+        setApp(onboardingDone = true, withMacros = false, dayFeed = true)
+        rule.waitUntil(timeoutMillis = 8_000) {
+            rule.onAllNodesWithText("今日のおすすめを上に置いたよ", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        rule.onNodeWithText("今日のおすすめを上に置いたよ", substring = true).assertIsDisplayed()
+        org.junit.Assert.assertTrue(rule.onAllNodesWithText("今日のおすすめ").fetchSemanticsNodes().isNotEmpty())
     }
 
     @Test
