@@ -71,7 +71,7 @@ class ScreenFlowTest {
         rule.onNodeWithText("マイセット", substring = true).performClick()
         rule.onNodeWithText("見すぎストッパー", substring = true).assertIsDisplayed()
         // タイルの操作ラベル（v2.2.5 で自動縮小に差し替えた所）が描かれていること
-        rule.onAllNodesWithText("テスト").onFirst().assertIsDisplayed()
+        rule.onAllNodesWithText("試す").onFirst().assertIsDisplayed()
         rule.onAllNodesWithText("編集").onFirst().assertIsDisplayed()
         // 削除はタイルに無い（v2.13.0で編集の中へ畳んだ）
         rule.onAllNodesWithText("削除").fetchSemanticsNodes().isEmpty()

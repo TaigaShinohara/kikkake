@@ -44,6 +44,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -811,7 +812,7 @@ fun HelpScreen(onBack: () -> Unit) {
         Column {
             HelpStep("1", Palette.Pink, Palette.PinkBg, "きっかけを選ぶ", "「22時になったら」「電池が減ったら」みたいな、始まりの合図。", listOf("⚡ 充電開始", "🕐 22:00", "🔋 電池が少ない"), showLine = true)
             HelpStep("2", Palette.Orange, Palette.OrangeBg, "やることを選ぶ", "静かにする、通知する…。組み合わせもOK。", listOf("🔔 通知を出す", "💬 声で知らせる", "🔦 ライト"), showLine = true)
-            HelpStep("3", Palette.Purple, Palette.PurpleBg, "保存するだけ", "あとはスマホがやってくれる。作ったら「テスト」で試せます。", emptyList(), showLine = false)
+            HelpStep("3", Palette.Purple, Palette.PurpleBg, "保存するだけ", "あとはスマホがやってくれる。作ったら「試す」で試せます。", emptyList(), showLine = false)
         }
         Box(Modifier.fillMaxWidth().glass(20, Palette.GlassCard).padding(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -990,30 +991,57 @@ fun PermRow(title: String, desc: String, howto: String = "", compact: Boolean = 
 fun TileAction(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     // 描画後にあふれていたら文字を少し小さくする（端末の文字サイズ設定が大きくても欠けない）
     // v2.2.4 の「描画前に測る」方式は起動時クラッシュの疑いが強いため、この無難な方式に差し替えた
+    // v2.13.2：押せるものは「面」で示す。中立色のピルにして、状態表示の文字（オン／オフ）と見分けがつくようにする。ピンクはスイッチと主ボタンだけに絞る
+    // 構造は他のピルボタン（これを使う等）と同じ pressable＋Box にそろえる。自動縮小（onTextLayout）も残す
     var size by remember { mutableStateOf(13.sp) }
-    Text(text, color = Palette.Pink, fontWeight = FontWeight.Bold, fontSize = size, maxLines = 1, softWrap = false, textAlign = TextAlign.Center,
-        onTextLayout = { r -> if (r.hasVisualOverflow && size.value > 10f) size = (size.value - 1f).sp },
-        modifier = modifier.clickable { onClick() }.padding(vertical = 8.dp))
+    Box(modifier.clip(RoundedCornerShape(999.dp)).background(Palette.Ink.copy(alpha = 0.07f)).border(1.dp, Palette.Line, RoundedCornerShape(999.dp)).pressable { onClick() }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+        Text(text, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = size, maxLines = 1, softWrap = false, textAlign = TextAlign.Center,
+            onTextLayout = { r -> if (r.hasVisualOverflow && size.value > 10f) size = (size.value - 1f).sp })
+    }
 }
 
+// タイル要約用の小さなチップ（v2.13.2）。FeedChip と同じ見た目で、1行に収める（中で折り返さない）
+@Composable
+fun TileChip(text: String, bg: Color, fg: Color) {
+    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(bg)).padding(horizontal = 9.dp, vertical = 4.dp)) {
+        Text(text, color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: () -> Unit, onEdit: () -> Unit, justAdded: Boolean = false, onTryNow: () -> Unit = {}) {
     // 案A「グラス進化」（2026-11-22 本人採用）：自動化を2列タイルで見せる。世界観は Simple Glass のまま
     Box(Modifier.fillMaxSize().glass(24, if (highlighted) Palette.PinkBg else Palette.GlassCard).padding(14.dp)) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(tintBrush(Palette.PinkBg)), contentAlignment = Alignment.Center) {
-                Text(macro.trigger.icon, fontSize = 19.sp)
+            // オフのときは頭の部分（アイコン・名前・要約）を沈ませて、一覧でどれが生きてるかパッと分かるようにする（v2.13.2）。スイッチの行は操作の場所なので沈ませない
+            Column(Modifier.alpha(if (macro.enabled) 1f else 0.45f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(tintBrush(Palette.PinkBg)), contentAlignment = Alignment.Center) {
+                    Text(macro.trigger.icon, fontSize = 19.sp)
+                }
+                Text(macro.name, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 22.sp, maxLines = 2)
+                // 要約は文章ではなくチップ2つ（きっかけ→やること）で見せる。文の途中で折れて「通知を／出す」みたいにならないように（v2.13.2）
+                val (trigPart, actPart) = Logic.tileSummaryParts(macro)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TileChip(trigPart, Palette.PinkBg, Palette.Pink)
+                    if (actPart != null) {
+                        // 矢印は動作チップとひとかたまりにして、行の途中で離れないようにする
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("→", color = Palette.InkSoft, fontSize = 12.sp)
+                            TileChip(actPart, Palette.OrangeBg, Palette.Orange)
+                        }
+                    }
+                }
             }
-            Text(macro.name, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 22.sp, maxLines = 2)
-            Text(Logic.tileSummary(macro), color = Palette.InkSoft, fontSize = 13.sp, lineHeight = 21.sp, maxLines = 3)
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (macro.enabled) "オン" else "オフ", color = if (macro.enabled) Palette.Pink else Palette.InkSoft, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                // 状態の文字は小さく静かに（表示であってボタンではない、v2.13.2）。色も中立にして、ピンクはスイッチに譲る
+                Text(if (macro.enabled) "オン" else "オフ", color = Palette.InkSoft, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
                 Switch(checked = macro.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Pink, checkedThumbColor = Color.White, uncheckedThumbColor = Color.White, uncheckedTrackColor = Palette.GlassCard, uncheckedBorderColor = Palette.Line))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TileAction("テスト", Modifier.weight(1f)) { onTest() }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TileAction("試す", Modifier.weight(1f)) { onTest() }
                 TileAction("編集", Modifier.weight(1f)) { onEdit() }
             }
             if (justAdded) {

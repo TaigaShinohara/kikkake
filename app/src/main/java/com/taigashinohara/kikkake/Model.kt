@@ -113,9 +113,20 @@ object Logic {
 
     // タイル用の短い要約（v2.10.0）：きっかけ＋最初の動作＋「ほかN件」だけ。動作の文面までは出さない
     fun tileSummary(m: Macro): String {
-        val triggerPart = summary(m).substringBefore(" → ")
-        val first = m.actions.firstOrNull()?.type?.label ?: return triggerPart
-        return if (m.actions.size > 1) "$triggerPart → $first ほか${m.actions.size - 1}件" else "$triggerPart → $first"
+        val (triggerPart, actionPart) = tileSummaryParts(m)
+        return if (actionPart == null) triggerPart else "$triggerPart → $actionPart"
+    }
+
+    // タイルのチップ表示用に、きっかけ側と動作側を分けて返す（v2.13.2）。動作が無ければ actionPart は null
+    // アプリ名の括弧書き（アプリを開いたら（YouTube）等）はチップでは落とす。チップは短さが命で、詳しくは編集で見る
+    fun tileSummaryParts(m: Macro): Pair<String, String?> {
+        var triggerPart = summary(m).substringBefore(" → ")
+        if (m.trigger == TriggerType.APP_LAUNCH || m.trigger == TriggerType.APP_CLOSED || m.trigger == TriggerType.NOTIFICATION_POSTED) {
+            triggerPart = triggerPart.substringBefore("（")
+        }
+        val first = m.actions.firstOrNull()?.type?.label ?: return triggerPart to null
+        val actionPart = if (m.actions.size > 1) "$first ほか${m.actions.size - 1}件" else first
+        return triggerPart to actionPart
     }
 
     fun summary(m: Macro): String {
