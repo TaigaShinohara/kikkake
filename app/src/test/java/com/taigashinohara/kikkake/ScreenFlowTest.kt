@@ -15,6 +15,8 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import java.io.File
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Rule
 import org.junit.Test
@@ -53,14 +55,21 @@ class ScreenFlowTest {
         setApp(onboardingDone = false, withMacros = false)
         rule.onNodeWithText("電池の減りが気になる", substring = true).performClick()
         val ctx = ApplicationProvider.getApplicationContext<Context>()
+        // 許可ガイドの出現は保存より遅れることがある。先に「ガイドか着地後のボタン」のどちらかが出るまで待ち、ガイドが出たら閉じてから着地を確認する
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodesWithText("あとで").fetchSemanticsNodes().isNotEmpty() ||
-                MacroStore(ctx).load().any { it.name == "電池節約" }
+                rule.onAllNodesWithText("今すぐ試す", substring = true).fetchSemanticsNodes().isNotEmpty()
         }
         if (rule.onAllNodesWithText("あとで").fetchSemanticsNodes().isNotEmpty()) {
             rule.onNodeWithText("あとで").performClick()
+            rule.waitUntil(timeoutMillis = 5_000) {
+                rule.onAllNodesWithText("今すぐ試す", substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
         }
+        check(MacroStore(ctx).load().any { it.name == "電池節約" })
         // 着地したマイセットで、追加直後の主ボタン「今すぐ試す」が見えること（C-4）
+        // v2.13.4 でタイルが縦に伸び、ボタンが画面の下に回ることがあるため、一覧を下へ送ってから判定する
+        rule.onAllNodes(hasScrollAction()).onFirst().performTouchInput { swipeUp() }
         rule.onNodeWithText("今すぐ試す", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("電池節約").assertIsDisplayed()
     }

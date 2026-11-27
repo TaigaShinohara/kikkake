@@ -558,9 +558,12 @@ fun KikkakeApp() {
                 }
             }
             items(macros.chunked(2), key = { row -> row.first().id }) { pair ->
-                Row(Modifier.height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // v2.13.4：行の高さを IntrinsicSize.Max で決めるのをやめた。固有サイズ測定は入れ子の Column の高さを過小に見積もり、
+                // タイル末尾の子（追加直後の「今すぐ試す」、大きい文字ではボタンの文字）が高さ0に潰れる実バグの原因だった。
+                // 行の高さは一番高いタイルの実測に任せ、タイルは自然な高さで並べる
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     pair.forEach { m ->
-                        Box(Modifier.weight(1f).fillMaxHeight()) {
+                        Box(Modifier.weight(1f)) {
                             MacroTile(
                                 macro = m, highlighted = m.id == highlightId,
                                 justAdded = m.id == tryNowId,
@@ -787,25 +790,24 @@ fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifie
                 }
                 if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH || t.trigger == TriggerType.APP_CLOSED || t.trigger == TriggerType.LOCATION) Text("※ 少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
             }
+            // 許可の表示はボタンと並ぶので、ピル型にすると「押せるもの」に見える。平らなラベル（点＋文字）にして、状態表示だと分かる形にする（v2.13.3）。何の許可かも書く
+            // v2.13.4：ボタン行と横並びだと、バッジ＋大きい文字設定でラベルの場所が潰れて名前が「…」だけになった（実機確認）。ボタン行の上に独立した行として置く
+            if (!added) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Box(Modifier.size(7.dp).clip(RoundedCornerShape(999.dp)).background(if (missingKeys.isNotEmpty()) Palette.Sky else Palette.Pink))
+                    Text(
+                        if (missingKeys.isEmpty()) "すぐ試せる" else "許可が要る：" + missingKeys.take(2).joinToString("・") { permKeyLabel(it) } + if (missingKeys.size > 2) " ほか" else "",
+                        color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (t.badge.isNotBlank()) {
                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(solidBrush(Palette.Pink)).padding(horizontal = 10.dp, vertical = 5.dp)) {
                         Text(t.badge, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
-                if (!added) {
-                    // 許可の表示はボタンと並ぶので、ピル型にすると「押せるもの」に見える。平らなラベル（点＋文字）にして、状態表示だと分かる形にする（v2.13.3）。何の許可かも書く
-                    // ラベル側に weight を持たせ、長くなってもボタンが潰れないようにする
-                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Box(Modifier.size(7.dp).clip(RoundedCornerShape(999.dp)).background(if (missingKeys.isNotEmpty()) Palette.Sky else Palette.Pink))
-                        Text(
-                            if (missingKeys.isEmpty()) "すぐ試せる" else "許可が要る：" + missingKeys.take(2).joinToString("・") { permKeyLabel(it) } + if (missingKeys.size > 2) " ほか" else "",
-                            color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                } else {
-                    Spacer(Modifier.weight(1f))
-                }
+                Spacer(Modifier.weight(1f))
                 if (added) {
                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.Line)).padding(horizontal = 16.dp, vertical = 9.dp)) {
                         Text("追加済み ✓", color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -1045,22 +1047,29 @@ fun PermRow(title: String, desc: String, howto: String = "", compact: Boolean = 
 
 @Composable
 fun TileAction(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    // 描画後にあふれていたら文字を少し小さくする（端末の文字サイズ設定が大きくても欠けない）
-    // v2.2.4 の「描画前に測る」方式は起動時クラッシュの疑いが強いため、この無難な方式に差し替えた
     // v2.13.2：押せるものは「面」で示す。中立色のピルにして、状態表示の文字（オン／オフ）と見分けがつくようにする。ピンクはスイッチと主ボタンだけに絞る
-    // 構造は他のピルボタン（これを使う等）と同じ pressable＋Box にそろえる。自動縮小（onTextLayout）も残す
-    var size by remember { mutableStateOf(13.sp) }
-    Box(modifier.clip(RoundedCornerShape(999.dp)).background(Palette.Ink.copy(alpha = 0.07f)).border(1.dp, Palette.Line, RoundedCornerShape(999.dp)).pressable { onClick() }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-        Text(text, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = size, maxLines = 1, softWrap = false, textAlign = TextAlign.Center,
-            onTextLayout = { r -> if (r.hasVisualOverflow && size.value > 10f) size = (size.value - 1f).sp })
+    // v2.13.4：自動縮小（onTextLayout＋remember のサイズ状態）を廃止。v2.13.2 の実機で「一部のタイルだけボタンの文字が出ない」不具合があり、
+    // ゴールデン撮影でも同じ症状が出ていた（撮影側の癖ではなく実バグだった）。ラベルは2文字で、固定 13sp ならどの幅でも収まる。測って縮める仕組み自体を捨てる
+    // 自前ピル（Box＋pressable＋Text）でもゴールデン撮影でグリフだけ抜け続けたため、最終的に Material3 の Button に載せ替えた
+    // （同じ画面の「許可する」ボタンは撮影でも実機でも安定して描画される実績がある）。見た目は中立色のピルのまま
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(999.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Palette.Ink.copy(alpha = 0.07f), contentColor = Palette.Ink),
+        elevation = null,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+    ) {
+        Text(text, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
     }
 }
 
 // タイル要約用の小さなチップ（v2.13.2）。FeedChip と同じ見た目で、1行に収める（中で折り返さない）
+// v2.13.4：はみ出すときは … で省略する（実機の2列タイルでチップがタイルの端からはみ出して切れていた）
 @Composable
 fun TileChip(text: String, bg: Color, fg: Color) {
     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(bg)).padding(horizontal = 9.dp, vertical = 4.dp)) {
-        Text(text, color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false)
+        Text(text, color = fg, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -1069,7 +1078,10 @@ fun TileChip(text: String, bg: Color, fg: Color) {
 fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: () -> Unit, onEdit: () -> Unit, justAdded: Boolean = false, onTryNow: () -> Unit = {}) {
     // 案A「グラス進化」（2026-11-22 本人採用）：自動化を2列タイルで見せる。世界観は Simple Glass のまま
     Box(Modifier.fillMaxSize().glass(24, if (highlighted) Palette.PinkBg else Palette.GlassCard).padding(14.dp)) {
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // v2.13.4：操作群を下に寄せるのに weight の Spacer を使うのをやめた。グリッドのタイル内では、この重み付き余白があると
+        // 後ろの子（追加直後の「今すぐ試す」）が高さ0で測られて描画されなくなる事象を確認したため、頭と操作群の2ブロックを
+        // SpaceBetween で上下に分ける形に変えた（重み付きの子を持たないので、全ての子が通常どおり測られる）
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
             // オフのときは頭の部分（アイコン・名前・要約）を沈ませて、一覧でどれが生きてるかパッと分かるようにする（v2.13.2）。スイッチの行は操作の場所なので沈ませない
             Column(Modifier.alpha(if (macro.enabled) 1f else 0.45f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(tintBrush(Palette.PinkBg)), contentAlignment = Alignment.Center) {
@@ -1078,32 +1090,32 @@ fun MacroTile(macro: Macro, highlighted: Boolean, onToggle: () -> Unit, onTest: 
                 Text(macro.name, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 22.sp, maxLines = 2)
                 // 要約は文章ではなくチップ2つ（きっかけ→やること）で見せる。文の途中で折れて「通知を／出す」みたいにならないように（v2.13.2）
                 val (trigPart, actPart) = Logic.tileSummaryParts(macro)
+                // v2.13.4：矢印＋動作チップをひとかたまり（Row）にすると、狭い2列タイルで塊ごと幅を超えて端で切れた。
+                // FlowRow の部品としてバラに並べ、入らなければ動作チップが次の行に回る形にする
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     TileChip(trigPart, Palette.PinkBg, Palette.Pink)
                     if (actPart != null) {
-                        // 矢印は動作チップとひとかたまりにして、行の途中で離れないようにする
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("→", color = Palette.InkSoft, fontSize = 12.sp)
-                            TileChip(actPart, Palette.OrangeBg, Palette.Orange)
-                        }
+                        Text("→", color = Palette.InkSoft, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                        TileChip(actPart, Palette.OrangeBg, Palette.Orange)
                     }
                 }
             }
-            Spacer(Modifier.weight(1f))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // 状態の文字は小さく静かに（表示であってボタンではない、v2.13.2）。色も中立にして、ピンクはスイッチに譲る
-                Text(if (macro.enabled) "オン" else "オフ", color = Palette.InkSoft, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                Switch(checked = macro.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Pink, checkedThumbColor = Color.White, uncheckedThumbColor = Color.White, uncheckedTrackColor = Palette.GlassCard, uncheckedBorderColor = Palette.Line))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TileAction("試す", Modifier.weight(1f)) { onTest() }
-                TileAction("編集", Modifier.weight(1f)) { onEdit() }
-            }
-            if (justAdded) {
-                // 追加直後だけ、その場で体感できる主ボタンを出す（C-4）
-                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp)).background(solidBrush(Palette.Pink)).pressable { onTryNow() }.padding(vertical = 11.dp), contentAlignment = Alignment.Center) {
-                    Text("▶ 今すぐ試す", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 状態の文字は小さく静かに（表示であってボタンではない、v2.13.2）。色も中立にして、ピンクはスイッチに譲る
+                    Text(if (macro.enabled) "オン" else "オフ", color = Palette.InkSoft, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    Switch(checked = macro.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedTrackColor = Palette.Pink, checkedThumbColor = Color.White, uncheckedThumbColor = Color.White, uncheckedTrackColor = Palette.GlassCard, uncheckedBorderColor = Palette.Line))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TileAction("試す", Modifier.weight(1f)) { onTest() }
+                    TileAction("編集", Modifier.weight(1f)) { onEdit() }
+                }
+                if (justAdded) {
+                    // 追加直後だけ、その場で体感できる主ボタンを出す（C-4）
+                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp)).background(solidBrush(Palette.Pink)).pressable { onTryNow() }.padding(vertical = 11.dp), contentAlignment = Alignment.Center) {
+                        Text("▶ 今すぐ試す", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
                 }
             }
         }
