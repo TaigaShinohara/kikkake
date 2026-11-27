@@ -280,6 +280,35 @@ object Engine {
     fun hasCalendarPermission(context: Context): Boolean =
         ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED
 
+    fun hasCalendarReadPermission(context: Context): Boolean =
+        ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
+
+    // 今日と明日の予定の「時刻と参加者の有無」だけを読む（v2.14.0、「今日の顔」の判定用）。
+    // タイトル等の本文は読まない・端末の外に送らない。許可が無い／読めない時は null（呼び出し側は曜日・時間帯の顔に落とす）。
+    // 終日予定は時刻の顔判定に使わないので除く
+    fun readDayEvents(context: Context, dayStart: Long): List<DayEventSpan>? {
+        if (!hasCalendarReadPermission(context)) return null
+        val end = dayStart + 2 * 24 * 60 * 60_000L
+        fun query(withAttendee: Boolean): List<DayEventSpan> {
+            val builder = android.provider.CalendarContract.Instances.CONTENT_URI.buildUpon()
+            android.content.ContentUris.appendId(builder, dayStart)
+            android.content.ContentUris.appendId(builder, end)
+            // hasAttendee は Instances の列名文字列で指定する（定数が Kotlin から引けないため）。列が無い端末では例外→参加者なしで再試行する
+            val proj = if (withAttendee) arrayOf(android.provider.CalendarContract.Instances.BEGIN, android.provider.CalendarContract.Instances.END, "hasAttendee", android.provider.CalendarContract.Instances.ALL_DAY)
+                else arrayOf(android.provider.CalendarContract.Instances.BEGIN, android.provider.CalendarContract.Instances.END, android.provider.CalendarContract.Instances.ALL_DAY)
+            val out = mutableListOf<DayEventSpan>()
+            context.contentResolver.query(builder.build(), proj, null, null, null)?.use { c ->
+                while (c.moveToNext()) {
+                    val allDay = c.getInt(if (withAttendee) 3 else 2) == 1
+                    if (allDay) continue
+                    out.add(DayEventSpan(c.getLong(0), c.getLong(1), withAttendee && c.getInt(2) == 1))
+                }
+            }
+            return out
+        }
+        return try { query(true) } catch (e: Exception) { try { query(false) } catch (e2: Exception) { null } }
+    }
+
     // 通知を1件出す（現在地・天気のアクション用）。成功したら true
     private fun postNotify(context: Context, macro: Macro, text: String): Boolean {
         ensureChannel(context)

@@ -212,59 +212,112 @@ object Logic {
     fun wifiConnectedEdge(prev: Boolean, now: Boolean): Boolean = !prev && now
 }
 
-data class Template(val title: String, val macroName: String, val trigger: TriggerType, val param: String, val actions: List<ActionItem>, val constraintType: ConstraintType = ConstraintType.NONE, val note: String = "", val badge: String = "")
+// テンプレの「場面」タグ（v2.14.0）。その日の予定の顔に合わせて、フィードの上に出す候補を選ぶためだけに使う
+enum class Situation { QUICK, DEEP, OUTING, TOGETHER }
+
+data class Template(val title: String, val macroName: String, val trigger: TriggerType, val param: String, val actions: List<ActionItem>, val constraintType: ConstraintType = ConstraintType.NONE, val note: String = "", val badge: String = "", val situations: Set<Situation> = emptySet())
+
+// 「今日の顔」：その日の予定（外にある理由）から決まる、フィードの出し分けの軸（v2.14.0）
+enum class DayFace { BUSY, OPEN, EVENING, TOGETHER }
+
+// カレンダーから読む予定の最小情報（時刻と参加者の有無だけ。タイトル等の本文は読まない）
+data class DayEventSpan(val start: Long, val end: Long, val hasAttendees: Boolean)
+
+// 今日の顔の判定と、おすすめ選び（純粋関数。予定の読み取りは Engine 側）
+object DayLogic {
+    // 顔の優先順：誰かと一緒 ＞ 予定が多め ＞ 夜に予定 ＞ 空きが多め
+    fun faceFor(events: List<DayEventSpan>, dayStart: Long): DayFace {
+        val dayEnd = dayStart + 24 * 60 * 60_000L
+        val today = events.filter { it.start < dayEnd && it.end > dayStart }
+        if (today.any { it.hasAttendees }) return DayFace.TOGETHER
+        val busyMin = today.sumOf { (minOf(it.end, dayEnd) - maxOf(it.start, dayStart)).coerceAtLeast(0L) } / 60_000L
+        if (today.size >= 3 || busyMin >= 240) return DayFace.BUSY
+        val eveningStart = dayStart + 18 * 60 * 60_000L
+        if (today.any { it.start >= eveningStart }) return DayFace.EVENING
+        return DayFace.OPEN
+    }
+
+    // カレンダーが読めない時の顔（曜日と時間帯だけから。静かに効く範囲で）
+    fun fallbackFace(weekday: Int, hour: Int): DayFace = when {
+        weekday == java.util.Calendar.SATURDAY || weekday == java.util.Calendar.SUNDAY -> DayFace.OPEN
+        hour >= 17 -> DayFace.EVENING
+        else -> DayFace.BUSY
+    }
+
+    fun situationFor(face: DayFace): Situation = when (face) {
+        DayFace.BUSY -> Situation.QUICK
+        DayFace.OPEN -> Situation.DEEP
+        DayFace.EVENING -> Situation.OUTING
+        DayFace.TOGETHER -> Situation.TOGETHER
+    }
+
+    // おすすめは最大3件。追加済みのテンプレは出さない
+    fun recommendedFor(face: DayFace, addedNames: Set<String>): List<Template> {
+        val sit = situationFor(face)
+        return Templates.filter { sit in it.situations && it.macroName !in addedNames }.take(3)
+    }
+
+    // ストリップの文面は事実だけを静かに書く（盛らない）。fromCalendar=false は曜日・時間帯から選んだ場合
+    fun stripText(face: DayFace, fromCalendar: Boolean): String = when {
+        !fromCalendar -> "今日のおすすめを上に置いたよ（曜日と時間帯から選んだよ）"
+        face == DayFace.BUSY -> "今日は予定が多めの日。手早く置けるおすすめを上に置いたよ"
+        face == DayFace.OPEN -> "今日は予定が少なめの日。じっくり系のおすすめを上に置いたよ"
+        face == DayFace.EVENING -> "今日は夜に予定がある日。出入りのおすすめを上に置いたよ"
+        else -> "今日は誰かと一緒の予定がある日。連絡に効くおすすめを上に置いたよ"
+    }
+}
 
 val Templates = listOf(
-    Template("動画の見すぎストッパー", "見すぎストッパー", TriggerType.APP_LAUNCH, "com.google.android.youtube", listOf(ActionItem(ActionType.WAIT, "5分"), ActionItem(ActionType.VIBRATE), ActionItem(ActionType.SPEAK, "そろそろ休憩しよ。目を休めてね")), ConstraintType.NONE, "つい見すぎる動画時間を、スマホ自身に止めてもらう。", badge = "イチオシ"),
-    Template("充電100%で声でお知らせ", "充電完了のお知らせ", TriggerType.BATTERY_RISES, "100%", listOf(ActionItem(ActionType.RING), ActionItem(ActionType.SPEAK, "充電が終わったよ。ケーブルを抜いてね")), ConstraintType.NONE, "挿しっぱなし防止。終わったら、声で呼ばれる。"),
-    Template("22時に静かに", "夜の静かモード", TriggerType.TIME, "22:00", listOf(ActionItem(ActionType.SILENT), ActionItem(ActionType.BRIGHTNESS_DOWN)), ConstraintType.NONE, "夜中に通知音で起きる事故を、なくす。"),
-    Template("朝の準備", "朝のお知らせ", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.VOLUME_UP), ActionItem(ActionType.NOTIFICATION)), ConstraintType.WEEKDAY, "平日の朝、音量を戻して通知でスタート。"),
-    Template("電池を節約", "電池節約", TriggerType.BATTERY_LOW, "20%", listOf(ActionItem(ActionType.BRIGHTNESS_DOWN), ActionItem(ActionType.NOTIFICATION)), ConstraintType.NONE, "20%を切ったら、自動で節電寄りに切り替える。"),
-    Template("充電お知らせ", "充電お知らせ", TriggerType.CHARGING_START, "", listOf(ActionItem(ActionType.NOTIFICATION)), ConstraintType.NONE, "充電のはじまりを、通知で確認できる。"),
-    Template("ケーブルを抜いたら声で知らせる", "充電のお知らせ", TriggerType.CHARGING_DONE, "", listOf(ActionItem(ActionType.SPEAK), ActionItem(ActionType.NOTIFICATION)), ConstraintType.NONE, "抜いた瞬間に、声と通知でお知らせ。"),
-    Template("ヘッドホンで音楽", "ヘッドホンで音楽", TriggerType.HEADSET, "", listOf(ActionItem(ActionType.MEDIA_PLAY_PAUSE)), ConstraintType.NONE, "つないだら、そのまま再生スタート。"),
-    Template("朝の支度アシスト", "朝の支度アシスト", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.WEATHER_NOTIFY), ActionItem(ActionType.SPEAK, "おはよう。今日の天気、通知に出したよ")), ConstraintType.WEEKDAY, "起きたら天気が届く。傘の判断を、家の中で済ませられる。"),
-    Template("AIに聞く朝のひとこと", "朝のAIアドバイス", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.AI_ASK, "今日の天気に合う服装を、一言で教えて"), ActionItem(ActionType.SPEAK, "{ai}")), ConstraintType.WEEKDAY, "AIの答えを、そのまま声で読み上げ。朝の服装選びを肩代わり。"),
-    Template("帰宅モード", "帰宅モード", TriggerType.WIFI_CONNECTED, "", listOf(ActionItem(ActionType.BRIGHTNESS_UP), ActionItem(ActionType.VOLUME_UP), ActionItem(ActionType.NOTIFICATION, "おかえり。明るさと音量を戻したよ")), ConstraintType.NONE, "家のWi-Fiにつながったら、昼モードに自動で復帰。設定を開く手間が消える。"),
-    Template("Bluetoothで音楽スタート", "Bluetoothで音楽", TriggerType.BLUETOOTH, "", listOf(ActionItem(ActionType.MUSIC_PLAY)), ConstraintType.NONE, "車やスピーカーがつながった瞬間、音楽が勝手に流れ出す。"),
-    Template("LINEが来たら声でお知らせ", "LINEの声お知らせ", TriggerType.NOTIFICATION_POSTED, "jp.naver.line.android|", listOf(ActionItem(ActionType.SPEAK, "LINEが来たよ")), ConstraintType.NONE, "大事な連絡を、画面を見なくても気づける。相手はあとから編集で変えられる。"),
-    Template("おやすみモードと連動", "おやすみ連動", TriggerType.DND_STATE, "on", listOf(ActionItem(ActionType.BRIGHTNESS_DOWN), ActionItem(ActionType.WIDGET_SET, "🌙 おやすみ中")), ConstraintType.NONE, "集中モードにしたら、画面もホーム画面も夜仕様に切り替わる。"),
-    Template("着陸したら現地の天気", "着陸したら天気", TriggerType.AIRPLANE, "off", listOf(ActionItem(ActionType.WEATHER_NOTIFY)), ConstraintType.NONE, "機内モードを切った瞬間、着いた場所の天気が届く。旅行の最初の一手が決まる。"),
-    Template("音楽で起きる朝", "音楽で起きる朝", TriggerType.TIME, "07:30", listOf(ActionItem(ActionType.MUSIC_PLAY), ActionItem(ActionType.VOLUME_UP)), ConstraintType.WEEKDAY, "アラーム音より、好きな音楽で起きる方が気持ちいい。"),
-    Template("YouTubeを閉じたら一息", "見終わりの合図", TriggerType.APP_CLOSED, "com.google.android.youtube", listOf(ActionItem(ActionType.SPEAK, "おつかれさま。目を休めてね")), ConstraintType.NONE, "見終わったあとの区切りを、スマホが作ってくれる。"),
-    Template("夕方の天気チェック", "夕方の天気チェック", TriggerType.TIME, "18:00", listOf(ActionItem(ActionType.WEATHER_NOTIFY)), ConstraintType.NONE, "一日の終わりに天気を確認。明日の支度の参考に、ちょうどいい。"),
-    Template("日の入りに夜モード", "日の入りに夜モード", TriggerType.SUN_EVENT, "sunset@34.6937,135.5023", listOf(ActionItem(ActionType.BRIGHTNESS_DOWN), ActionItem(ActionType.SILENT)), ConstraintType.NONE, "太陽に合わせて動く。座標は大阪のもの、編集で自分の場所に変えてね。"),
-    Template("日の出に朝モード", "日の出に朝モード", TriggerType.SUN_EVENT, "sunrise@34.6937,135.5023", listOf(ActionItem(ActionType.BRIGHTNESS_UP), ActionItem(ActionType.SILENT_OFF)), ConstraintType.NONE, "夜が明けたら、スマホも朝仕様に。座標は大阪のもの、編集で変えられる。"),
-    Template("家の近くに着いたら", "帰宅の合図", TriggerType.LOCATION, "arrive@34.6937,135.5023", listOf(ActionItem(ActionType.NOTIFICATION, "家の近くに着いたよ")), ConstraintType.NONE, "場所でも発火できる。座標は大阪駅あたり、編集で自宅に変えると帰宅の合図になる。"),
-    Template("毎晩の電池ログ", "電池ログ", TriggerType.TIME, "23:00", listOf(ActionItem(ActionType.MEMO_SAVE, "今日の電池は{battery}%")), ConstraintType.NONE, "毎晩の電池残量がメモに自動で溜まる。減り方のクセが見えてくる。"),
-    Template("AIに夕飯を聞く", "AIの夕飯提案", TriggerType.TIME, "17:00", listOf(ActionItem(ActionType.AI_ASK, "卵とキャベツがある。夕飯のおかずを1つ提案して"), ActionItem(ActionType.SPEAK, "{ai}")), ConstraintType.NONE, "献立の悩みを、AIに丸投げ。答えは声で読み上げてくれる。"),
-    Template("AIに今日の運勢", "AI運勢", TriggerType.TIME, "08:00", listOf(ActionItem(ActionType.AI_ASK, "今日の運勢を一言で占って"), ActionItem(ActionType.SPEAK, "{ai}")), ConstraintType.NONE, "毎朝、AIの占いが声で届く。いい日も悪い日も、まず笑える。"),
-    Template("お昼のサイコロ", "サイコロ", TriggerType.TIME, "12:00", listOf(ActionItem(ActionType.JS_RUN, "Math.floor(Math.random()*6)+1")), ConstraintType.NONE, "実はJavaScriptも動く。結果は通知で届く、お昼の暇つぶし。"),
-    Template("請求書メールは強めに", "請求書アラート", TriggerType.NOTIFICATION_POSTED, "com.google.android.gm|請求", listOf(ActionItem(ActionType.VIBRATE), ActionItem(ActionType.REPEAT, "3回"), ActionItem(ActionType.SPEAK, "請求書のメールが来たよ")), ConstraintType.NONE, "キーワードで絞って、バイブ3連打＋声。大事なメールだけ強めに知らせる。"),
-    Template("Kindleを開いたら画面を消さない", "読書モード", TriggerType.APP_LAUNCH, "com.amazon.kindle", listOf(ActionItem(ActionType.SCREEN_KEEP)), ConstraintType.NONE, "読書中に画面が消えるイライラとお別れ。開くたびにON／OFFが切り替わる。"),
-    Template("ベッドで画面を固定", "ベッドモード", TriggerType.TIME, "22:30", listOf(ActionItem(ActionType.ROTATE_OFF)), ConstraintType.NONE, "寝転んで見ても、画面がクルクル回らなくなる。"),
-    Template("夜は壁紙も夜色に", "夜の壁紙", TriggerType.TIME, "23:00", listOf(ActionItem(ActionType.WALLPAPER, "黒")), ConstraintType.NONE, "壁紙まで自動で夜仕様。色は黒・白・ピンク・水色・紫・オレンジから編集で選べる。"),
-    Template("朝イチに集中タイム", "集中タイム登録", TriggerType.TIME, "09:00", listOf(ActionItem(ActionType.CALENDAR_ADD, "集中タイム")), ConstraintType.WEEKDAY, "その日の予定に「今から1時間の集中タイム」が自動で入る。"),
-    Template("LINEを開いたらお礼文をコピー", "お礼文コピー", TriggerType.APP_LAUNCH, "jp.naver.line.android", listOf(ActionItem(ActionType.CLIPBOARD_COPY, "ありがとうございます！助かりました")), ConstraintType.NONE, "開いた瞬間に定型文がコピー済み。あとは貼るだけ。文は編集で変えられる。"),
+    Template("動画の見すぎストッパー", "見すぎストッパー", TriggerType.APP_LAUNCH, "com.google.android.youtube", listOf(ActionItem(ActionType.WAIT, "5分"), ActionItem(ActionType.VIBRATE), ActionItem(ActionType.SPEAK, "そろそろ休憩しよ。目を休めてね")), ConstraintType.NONE, "つい見すぎる動画時間を、スマホ自身に止めてもらう。", badge = "イチオシ", situations = setOf(Situation.QUICK)),
+    Template("充電100%で声でお知らせ", "充電完了のお知らせ", TriggerType.BATTERY_RISES, "100%", listOf(ActionItem(ActionType.RING), ActionItem(ActionType.SPEAK, "充電が終わったよ。ケーブルを抜いてね")), ConstraintType.NONE, "挿しっぱなし防止。終わったら、声で呼ばれる。", situations = setOf(Situation.QUICK)),
+    Template("22時に静かに", "夜の静かモード", TriggerType.TIME, "22:00", listOf(ActionItem(ActionType.SILENT), ActionItem(ActionType.BRIGHTNESS_DOWN)), ConstraintType.NONE, "夜中に通知音で起きる事故を、なくす。", situations = setOf(Situation.QUICK)),
+    Template("朝の準備", "朝のお知らせ", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.VOLUME_UP), ActionItem(ActionType.NOTIFICATION)), ConstraintType.WEEKDAY, "平日の朝、音量を戻して通知でスタート。", situations = setOf(Situation.OUTING)),
+    Template("電池を節約", "電池節約", TriggerType.BATTERY_LOW, "20%", listOf(ActionItem(ActionType.BRIGHTNESS_DOWN), ActionItem(ActionType.NOTIFICATION)), ConstraintType.NONE, "20%を切ったら、自動で節電寄りに切り替える。", situations = setOf(Situation.QUICK)),
+    Template("充電お知らせ", "充電お知らせ", TriggerType.CHARGING_START, "", listOf(ActionItem(ActionType.NOTIFICATION)), ConstraintType.NONE, "充電のはじまりを、通知で確認できる。", situations = setOf(Situation.QUICK)),
+    Template("ケーブルを抜いたら声で知らせる", "充電のお知らせ", TriggerType.CHARGING_DONE, "", listOf(ActionItem(ActionType.SPEAK), ActionItem(ActionType.NOTIFICATION)), ConstraintType.NONE, "抜いた瞬間に、声と通知でお知らせ。", situations = setOf(Situation.QUICK)),
+    Template("ヘッドホンで音楽", "ヘッドホンで音楽", TriggerType.HEADSET, "", listOf(ActionItem(ActionType.MEDIA_PLAY_PAUSE)), ConstraintType.NONE, "つないだら、そのまま再生スタート。", situations = setOf(Situation.OUTING)),
+    Template("朝の支度アシスト", "朝の支度アシスト", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.WEATHER_NOTIFY), ActionItem(ActionType.SPEAK, "おはよう。今日の天気、通知に出したよ")), ConstraintType.WEEKDAY, "起きたら天気が届く。傘の判断を、家の中で済ませられる。", situations = setOf(Situation.OUTING)),
+    Template("AIに聞く朝のひとこと", "朝のAIアドバイス", TriggerType.TIME, "07:00", listOf(ActionItem(ActionType.AI_ASK, "今日の天気に合う服装を、一言で教えて"), ActionItem(ActionType.SPEAK, "{ai}")), ConstraintType.WEEKDAY, "AIの答えを、そのまま声で読み上げ。朝の服装選びを肩代わり。", situations = setOf(Situation.OUTING)),
+    Template("帰宅モード", "帰宅モード", TriggerType.WIFI_CONNECTED, "", listOf(ActionItem(ActionType.BRIGHTNESS_UP), ActionItem(ActionType.VOLUME_UP), ActionItem(ActionType.NOTIFICATION, "おかえり。明るさと音量を戻したよ")), ConstraintType.NONE, "家のWi-Fiにつながったら、昼モードに自動で復帰。設定を開く手間が消える。", situations = setOf(Situation.OUTING)),
+    Template("Bluetoothで音楽スタート", "Bluetoothで音楽", TriggerType.BLUETOOTH, "", listOf(ActionItem(ActionType.MUSIC_PLAY)), ConstraintType.NONE, "車やスピーカーがつながった瞬間、音楽が勝手に流れ出す。", situations = setOf(Situation.OUTING)),
+    Template("LINEが来たら声でお知らせ", "LINEの声お知らせ", TriggerType.NOTIFICATION_POSTED, "jp.naver.line.android|", listOf(ActionItem(ActionType.SPEAK, "LINEが来たよ")), ConstraintType.NONE, "大事な連絡を、画面を見なくても気づける。相手はあとから編集で変えられる。", situations = setOf(Situation.TOGETHER)),
+    Template("おやすみモードと連動", "おやすみ連動", TriggerType.DND_STATE, "on", listOf(ActionItem(ActionType.BRIGHTNESS_DOWN), ActionItem(ActionType.WIDGET_SET, "🌙 おやすみ中")), ConstraintType.NONE, "集中モードにしたら、画面もホーム画面も夜仕様に切り替わる。", situations = setOf(Situation.QUICK)),
+    Template("着陸したら現地の天気", "着陸したら天気", TriggerType.AIRPLANE, "off", listOf(ActionItem(ActionType.WEATHER_NOTIFY)), ConstraintType.NONE, "機内モードを切った瞬間、着いた場所の天気が届く。旅行の最初の一手が決まる。", situations = setOf(Situation.OUTING)),
+    Template("音楽で起きる朝", "音楽で起きる朝", TriggerType.TIME, "07:30", listOf(ActionItem(ActionType.MUSIC_PLAY), ActionItem(ActionType.VOLUME_UP)), ConstraintType.WEEKDAY, "アラーム音より、好きな音楽で起きる方が気持ちいい。", situations = setOf(Situation.OUTING)),
+    Template("YouTubeを閉じたら一息", "見終わりの合図", TriggerType.APP_CLOSED, "com.google.android.youtube", listOf(ActionItem(ActionType.SPEAK, "おつかれさま。目を休めてね")), ConstraintType.NONE, "見終わったあとの区切りを、スマホが作ってくれる。", situations = setOf(Situation.QUICK)),
+    Template("夕方の天気チェック", "夕方の天気チェック", TriggerType.TIME, "18:00", listOf(ActionItem(ActionType.WEATHER_NOTIFY)), ConstraintType.NONE, "一日の終わりに天気を確認。明日の支度の参考に、ちょうどいい。", situations = setOf(Situation.DEEP)),
+    Template("日の入りに夜モード", "日の入りに夜モード", TriggerType.SUN_EVENT, "sunset@34.6937,135.5023", listOf(ActionItem(ActionType.BRIGHTNESS_DOWN), ActionItem(ActionType.SILENT)), ConstraintType.NONE, "太陽に合わせて動く。座標は大阪のもの、編集で自分の場所に変えてね。", situations = setOf(Situation.OUTING)),
+    Template("日の出に朝モード", "日の出に朝モード", TriggerType.SUN_EVENT, "sunrise@34.6937,135.5023", listOf(ActionItem(ActionType.BRIGHTNESS_UP), ActionItem(ActionType.SILENT_OFF)), ConstraintType.NONE, "夜が明けたら、スマホも朝仕様に。座標は大阪のもの、編集で変えられる。", situations = setOf(Situation.OUTING)),
+    Template("家の近くに着いたら", "帰宅の合図", TriggerType.LOCATION, "arrive@34.6937,135.5023", listOf(ActionItem(ActionType.NOTIFICATION, "家の近くに着いたよ")), ConstraintType.NONE, "場所でも発火できる。座標は大阪駅あたり、編集で自宅に変えると帰宅の合図になる。", situations = setOf(Situation.OUTING)),
+    Template("毎晩の電池ログ", "電池ログ", TriggerType.TIME, "23:00", listOf(ActionItem(ActionType.MEMO_SAVE, "今日の電池は{battery}%")), ConstraintType.NONE, "毎晩の電池残量がメモに自動で溜まる。減り方のクセが見えてくる。", situations = setOf(Situation.DEEP)),
+    Template("AIに夕飯を聞く", "AIの夕飯提案", TriggerType.TIME, "17:00", listOf(ActionItem(ActionType.AI_ASK, "卵とキャベツがある。夕飯のおかずを1つ提案して"), ActionItem(ActionType.SPEAK, "{ai}")), ConstraintType.NONE, "献立の悩みを、AIに丸投げ。答えは声で読み上げてくれる。", situations = setOf(Situation.DEEP)),
+    Template("AIに今日の運勢", "AI運勢", TriggerType.TIME, "08:00", listOf(ActionItem(ActionType.AI_ASK, "今日の運勢を一言で占って"), ActionItem(ActionType.SPEAK, "{ai}")), ConstraintType.NONE, "毎朝、AIの占いが声で届く。いい日も悪い日も、まず笑える。", situations = setOf(Situation.DEEP)),
+    Template("お昼のサイコロ", "サイコロ", TriggerType.TIME, "12:00", listOf(ActionItem(ActionType.JS_RUN, "Math.floor(Math.random()*6)+1")), ConstraintType.NONE, "実はJavaScriptも動く。結果は通知で届く、お昼の暇つぶし。", situations = setOf(Situation.DEEP)),
+    Template("請求書メールは強めに", "請求書アラート", TriggerType.NOTIFICATION_POSTED, "com.google.android.gm|請求", listOf(ActionItem(ActionType.VIBRATE), ActionItem(ActionType.REPEAT, "3回"), ActionItem(ActionType.SPEAK, "請求書のメールが来たよ")), ConstraintType.NONE, "キーワードで絞って、バイブ3連打＋声。大事なメールだけ強めに知らせる。", situations = setOf(Situation.QUICK)),
+    Template("Kindleを開いたら画面を消さない", "読書モード", TriggerType.APP_LAUNCH, "com.amazon.kindle", listOf(ActionItem(ActionType.SCREEN_KEEP)), ConstraintType.NONE, "読書中に画面が消えるイライラとお別れ。開くたびにON／OFFが切り替わる。", situations = setOf(Situation.DEEP)),
+    Template("ベッドで画面を固定", "ベッドモード", TriggerType.TIME, "22:30", listOf(ActionItem(ActionType.ROTATE_OFF)), ConstraintType.NONE, "寝転んで見ても、画面がクルクル回らなくなる。", situations = setOf(Situation.QUICK)),
+    Template("夜は壁紙も夜色に", "夜の壁紙", TriggerType.TIME, "23:00", listOf(ActionItem(ActionType.WALLPAPER, "黒")), ConstraintType.NONE, "壁紙まで自動で夜仕様。色は黒・白・ピンク・水色・紫・オレンジから編集で選べる。", situations = setOf(Situation.QUICK)),
+    Template("朝イチに集中タイム", "集中タイム登録", TriggerType.TIME, "09:00", listOf(ActionItem(ActionType.CALENDAR_ADD, "集中タイム")), ConstraintType.WEEKDAY, "その日の予定に「今から1時間の集中タイム」が自動で入る。", situations = setOf(Situation.DEEP)),
+    Template("LINEを開いたらお礼文をコピー", "お礼文コピー", TriggerType.APP_LAUNCH, "jp.naver.line.android", listOf(ActionItem(ActionType.CLIPBOARD_COPY, "ありがとうございます！助かりました")), ConstraintType.NONE, "開いた瞬間に定型文がコピー済み。あとは貼るだけ。文は編集で変えられる。", situations = setOf(Situation.TOGETHER)),
     // v2.9.0 追加分（便利・面白い・すごい を20件）
-    Template("玄関タグで帰宅セット", "帰宅セット", TriggerType.NFC, "", listOf(ActionItem(ActionType.BRIGHTNESS_UP), ActionItem(ActionType.SILENT_OFF), ActionItem(ActionType.NOTIFICATION, "おかえり。明るさと音を戻したよ")), ConstraintType.NONE, "玄関に貼ったNFCタグにかざすだけ。帰宅後の切り替えが、ワンタッチで終わる。"),
-    Template("省電力になったら節電モード", "省電力で節電", TriggerType.POWER_SAVE, "on", listOf(ActionItem(ActionType.BRIGHTNESS_DOWN), ActionItem(ActionType.NOTIFICATION, "省電力モードになったので、明るさも下げたよ")), ConstraintType.NONE, "端末の省電力に、画面の明るさまで連動させる。"),
-    Template("省電力が終わったら明るさ戻す", "省電力から復帰", TriggerType.POWER_SAVE, "off", listOf(ActionItem(ActionType.BRIGHTNESS_UP)), ConstraintType.NONE, "省電力が解けたら、明るさも自動で元どおり。戻し忘れがなくなる。"),
-    Template("機内モードで読書の準備", "機内の読書準備", TriggerType.AIRPLANE, "on", listOf(ActionItem(ActionType.SCREEN_KEEP), ActionItem(ActionType.BRIGHTNESS_DOWN)), ConstraintType.NONE, "機内モードにしたら、画面は消えず明るさは控えめ。飛行機の中の読書仕様。"),
-    Template("集中が終わったらおつかれさま", "集中おわり", TriggerType.DND_STATE, "off", listOf(ActionItem(ActionType.SPEAK, "おつかれさま。集中タイム、終わりだよ"), ActionItem(ActionType.WIDGET_SET, "おつかれさま ☕")), ConstraintType.NONE, "集中モードを切った瞬間、ねぎらいの声とホーム画面のひとこと。"),
-    Template("充電が半分でメモ", "充電メモ", TriggerType.BATTERY_RISES, "50%", listOf(ActionItem(ActionType.MEMO_SAVE, "{time} 電池{battery}%")), ConstraintType.NONE, "充電の進み具合がメモに残る。あとで見ると、充電のクセが分かる。"),
-    Template("お昼の姿勢リセット", "姿勢リセット", TriggerType.TIME, "12:15", listOf(ActionItem(ActionType.VIBRATE), ActionItem(ActionType.SPEAK, "背筋を伸ばして、深呼吸しよ")), ConstraintType.WEEKDAY, "平日のお昼、バイブと声で姿勢をリセット。午後の縮こまり防止。"),
-    Template("地図を開いたら現在地", "地図で現在地", TriggerType.APP_LAUNCH, "com.google.android.apps.maps", listOf(ActionItem(ActionType.LOCATION_NOTIFY)), ConstraintType.NONE, "マップを開いたら、今いる場所が通知にも出る。待ち合わせの共有が速くなる。"),
-    Template("車につながったら地図", "車の地図", TriggerType.BLUETOOTH, "", listOf(ActionItem(ActionType.LAUNCH_APP, "com.google.android.apps.maps")), ConstraintType.NONE, "車のBluetoothがつながった瞬間、地図が開く。出発の流れが止まらない。"),
-    Template("会議の通知で予定を仮登録", "会議の仮登録", TriggerType.NOTIFICATION_POSTED, "com.google.android.gm|会議", listOf(ActionItem(ActionType.CALENDAR_ADD, "会議（通知から仮登録）")), ConstraintType.NONE, "「会議」のメールが来たら、予定に仮登録まで自動。あとで直すだけになる。"),
-    Template("家族のLINEは音つきで", "家族のLINE", TriggerType.NOTIFICATION_POSTED, "jp.naver.line.android|お母さん", listOf(ActionItem(ActionType.RING), ActionItem(ActionType.SPEAK, "お母さんからLINEだよ")), ConstraintType.NONE, "名前で絞って、大事な人の連絡だけ音つきで。名前は編集で変えられる。"),
-    Template("朝のおみくじ", "朝のおみくじ", TriggerType.TIME, "08:30", listOf(ActionItem(ActionType.JS_RUN, "['大吉','中吉','小吉','吉'][Math.floor(Math.random()*4)]")), ConstraintType.NONE, "毎朝のおみくじが通知で届く。JavaScriptで引く、ささやかな運試し。"),
-    Template("午後のほめ言葉", "ほめ言葉", TriggerType.TIME, "15:00", listOf(ActionItem(ActionType.AI_ASK, "がんばっている人を、一言で褒めて"), ActionItem(ActionType.SPEAK, "{ai}")), ConstraintType.WEEKDAY, "平日の午後、AIのほめ言葉が声で届く。あとひと踏ん張りの栄養。"),
-    Template("スマホを置く時間", "スマホを置く", TriggerType.TIME, "20:00", listOf(ActionItem(ActionType.WALLPAPER, "ピンク"), ActionItem(ActionType.SPEAK, "スマホは置いて、自分の時間にしよ")), ConstraintType.NONE, "壁紙の色が変わったら、スマホを置く合図。夜の時間を取り戻す。"),
-    Template("夜の帰宅でライト", "帰宅ライト", TriggerType.LOCATION, "arrive@34.6937,135.5023", listOf(ActionItem(ActionType.FLASHLIGHT), ActionItem(ActionType.NOTIFICATION, "おかえり。ライトをつけたよ")), ConstraintType.NONE, "家の近くに着いたら、ライトが点く。暗い玄関先の足元を照らす。座標は編集で自宅に。"),
-    Template("朝のニュースを開く", "朝のニュース", TriggerType.TIME, "07:45", listOf(ActionItem(ActionType.OPEN_URL, "https://news.google.com/")), ConstraintType.WEEKDAY, "平日の朝、ニュースが開いた状態で待っている。世の中チェックの習慣化。"),
-    Template("帰りの電車で読書", "帰りの読書", TriggerType.TIME, "18:45", listOf(ActionItem(ActionType.LAUNCH_APP, "com.amazon.kindle")), ConstraintType.WEEKDAY, "平日の夕方、Kindleが開く。帰りの電車が読書時間に変わる。"),
-    Template("お昼寝タイマー", "お昼寝タイマー", TriggerType.TIME, "13:00", listOf(ActionItem(ActionType.WAIT, "20分"), ActionItem(ActionType.RING), ActionItem(ActionType.SPEAK, "お昼寝おわり。すっきり起きよ")), ConstraintType.NONE, "20分待ってから鳴らす、昼寝専用の目覚まし。タイマーを掛ける手間なし。"),
-    Template("電池ピンチの助け", "電池ピンチ", TriggerType.BATTERY_LOW, "10%", listOf(ActionItem(ActionType.SPEAK, "電池が10パーセント。充電してね"), ActionItem(ActionType.LOCATION_NOTIFY)), ConstraintType.NONE, "10%を切ったら声で警告＋現在地を通知に残す。万が一の居場所メモにもなる。"),
-    Template("端末の容量チェック", "容量チェック", TriggerType.TIME, "21:00", listOf(ActionItem(ActionType.COMMAND_RUN, "df -h /data")), ConstraintType.NONE, "コマンド実行で空き容量を通知。実はシェルも動く、上級者向けの本気機能。")
+    Template("玄関タグで帰宅セット", "帰宅セット", TriggerType.NFC, "", listOf(ActionItem(ActionType.BRIGHTNESS_UP), ActionItem(ActionType.SILENT_OFF), ActionItem(ActionType.NOTIFICATION, "おかえり。明るさと音を戻したよ")), ConstraintType.NONE, "玄関に貼ったNFCタグにかざすだけ。帰宅後の切り替えが、ワンタッチで終わる。", situations = setOf(Situation.OUTING)),
+    Template("省電力になったら節電モード", "省電力で節電", TriggerType.POWER_SAVE, "on", listOf(ActionItem(ActionType.BRIGHTNESS_DOWN), ActionItem(ActionType.NOTIFICATION, "省電力モードになったので、明るさも下げたよ")), ConstraintType.NONE, "端末の省電力に、画面の明るさまで連動させる。", situations = setOf(Situation.QUICK)),
+    Template("省電力が終わったら明るさ戻す", "省電力から復帰", TriggerType.POWER_SAVE, "off", listOf(ActionItem(ActionType.BRIGHTNESS_UP)), ConstraintType.NONE, "省電力が解けたら、明るさも自動で元どおり。戻し忘れがなくなる。", situations = setOf(Situation.QUICK)),
+    Template("機内モードで読書の準備", "機内の読書準備", TriggerType.AIRPLANE, "on", listOf(ActionItem(ActionType.SCREEN_KEEP), ActionItem(ActionType.BRIGHTNESS_DOWN)), ConstraintType.NONE, "機内モードにしたら、画面は消えず明るさは控えめ。飛行機の中の読書仕様。", situations = setOf(Situation.DEEP)),
+    Template("集中が終わったらおつかれさま", "集中おわり", TriggerType.DND_STATE, "off", listOf(ActionItem(ActionType.SPEAK, "おつかれさま。集中タイム、終わりだよ"), ActionItem(ActionType.WIDGET_SET, "おつかれさま ☕")), ConstraintType.NONE, "集中モードを切った瞬間、ねぎらいの声とホーム画面のひとこと。", situations = setOf(Situation.QUICK)),
+    Template("充電が半分でメモ", "充電メモ", TriggerType.BATTERY_RISES, "50%", listOf(ActionItem(ActionType.MEMO_SAVE, "{time} 電池{battery}%")), ConstraintType.NONE, "充電の進み具合がメモに残る。あとで見ると、充電のクセが分かる。", situations = setOf(Situation.DEEP)),
+    Template("お昼の姿勢リセット", "姿勢リセット", TriggerType.TIME, "12:15", listOf(ActionItem(ActionType.VIBRATE), ActionItem(ActionType.SPEAK, "背筋を伸ばして、深呼吸しよ")), ConstraintType.WEEKDAY, "平日のお昼、バイブと声で姿勢をリセット。午後の縮こまり防止。", situations = setOf(Situation.QUICK)),
+    Template("地図を開いたら現在地", "地図で現在地", TriggerType.APP_LAUNCH, "com.google.android.apps.maps", listOf(ActionItem(ActionType.LOCATION_NOTIFY)), ConstraintType.NONE, "マップを開いたら、今いる場所が通知にも出る。待ち合わせの共有が速くなる。", situations = setOf(Situation.OUTING, Situation.TOGETHER)),
+    Template("車につながったら地図", "車の地図", TriggerType.BLUETOOTH, "", listOf(ActionItem(ActionType.LAUNCH_APP, "com.google.android.apps.maps")), ConstraintType.NONE, "車のBluetoothがつながった瞬間、地図が開く。出発の流れが止まらない。", situations = setOf(Situation.OUTING)),
+    Template("会議の通知で予定を仮登録", "会議の仮登録", TriggerType.NOTIFICATION_POSTED, "com.google.android.gm|会議", listOf(ActionItem(ActionType.CALENDAR_ADD, "会議（通知から仮登録）")), ConstraintType.NONE, "「会議」のメールが来たら、予定に仮登録まで自動。あとで直すだけになる。", situations = setOf(Situation.TOGETHER)),
+    Template("家族のLINEは音つきで", "家族のLINE", TriggerType.NOTIFICATION_POSTED, "jp.naver.line.android|お母さん", listOf(ActionItem(ActionType.RING), ActionItem(ActionType.SPEAK, "お母さんからLINEだよ")), ConstraintType.NONE, "名前で絞って、大事な人の連絡だけ音つきで。名前は編集で変えられる。", situations = setOf(Situation.TOGETHER)),
+    Template("朝のおみくじ", "朝のおみくじ", TriggerType.TIME, "08:30", listOf(ActionItem(ActionType.JS_RUN, "['大吉','中吉','小吉','吉'][Math.floor(Math.random()*4)]")), ConstraintType.NONE, "毎朝のおみくじが通知で届く。JavaScriptで引く、ささやかな運試し。", situations = setOf(Situation.DEEP)),
+    Template("午後のほめ言葉", "ほめ言葉", TriggerType.TIME, "15:00", listOf(ActionItem(ActionType.AI_ASK, "がんばっている人を、一言で褒めて"), ActionItem(ActionType.SPEAK, "{ai}")), ConstraintType.WEEKDAY, "平日の午後、AIのほめ言葉が声で届く。あとひと踏ん張りの栄養。", situations = setOf(Situation.DEEP)),
+    Template("スマホを置く時間", "スマホを置く", TriggerType.TIME, "20:00", listOf(ActionItem(ActionType.WALLPAPER, "ピンク"), ActionItem(ActionType.SPEAK, "スマホは置いて、自分の時間にしよ")), ConstraintType.NONE, "壁紙の色が変わったら、スマホを置く合図。夜の時間を取り戻す。", situations = setOf(Situation.DEEP)),
+    Template("夜の帰宅でライト", "帰宅ライト", TriggerType.LOCATION, "arrive@34.6937,135.5023", listOf(ActionItem(ActionType.FLASHLIGHT), ActionItem(ActionType.NOTIFICATION, "おかえり。ライトをつけたよ")), ConstraintType.NONE, "家の近くに着いたら、ライトが点く。暗い玄関先の足元を照らす。座標は編集で自宅に。", situations = setOf(Situation.OUTING)),
+    Template("朝のニュースを開く", "朝のニュース", TriggerType.TIME, "07:45", listOf(ActionItem(ActionType.OPEN_URL, "https://news.google.com/")), ConstraintType.WEEKDAY, "平日の朝、ニュースが開いた状態で待っている。世の中チェックの習慣化。", situations = setOf(Situation.DEEP)),
+    Template("帰りの電車で読書", "帰りの読書", TriggerType.TIME, "18:45", listOf(ActionItem(ActionType.LAUNCH_APP, "com.amazon.kindle")), ConstraintType.WEEKDAY, "平日の夕方、Kindleが開く。帰りの電車が読書時間に変わる。", situations = setOf(Situation.OUTING)),
+    Template("お昼寝タイマー", "お昼寝タイマー", TriggerType.TIME, "13:00", listOf(ActionItem(ActionType.WAIT, "20分"), ActionItem(ActionType.RING), ActionItem(ActionType.SPEAK, "お昼寝おわり。すっきり起きよ")), ConstraintType.NONE, "20分待ってから鳴らす、昼寝専用の目覚まし。タイマーを掛ける手間なし。", situations = setOf(Situation.DEEP)),
+    Template("電池ピンチの助け", "電池ピンチ", TriggerType.BATTERY_LOW, "10%", listOf(ActionItem(ActionType.SPEAK, "電池が10パーセント。充電してね"), ActionItem(ActionType.LOCATION_NOTIFY)), ConstraintType.NONE, "10%を切ったら声で警告＋現在地を通知に残す。万が一の居場所メモにもなる。", situations = setOf(Situation.QUICK)),
+    Template("端末の容量チェック", "容量チェック", TriggerType.TIME, "21:00", listOf(ActionItem(ActionType.COMMAND_RUN, "df -h /data")), ConstraintType.NONE, "コマンド実行で空き容量を通知。実はシェルも動く、上級者向けの本気機能。", situations = setOf(Situation.DEEP))
 )

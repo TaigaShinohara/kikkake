@@ -137,6 +137,10 @@ class StateStore(context: Context) {
     var trialDone: Boolean
         get() = prefs.getBoolean("trialDone", prefs.getBoolean("onboardingDone", false))
         set(v) = prefs.edit().putBoolean("trialDone", v).apply()
+    // 「今日のおすすめ」（カレンダー連動の出し分け）が有効か（v2.14.0〜、既定はOFF＝オプトイン）
+    var dayFeedEnabled: Boolean
+        get() = prefs.getBoolean("dayFeedEnabled", false)
+        set(v) = prefs.edit().putBoolean("dayFeedEnabled", v).apply()
     // フィードでブックマークしたテンプレの macroName 集合（v2.8.0〜）
     var bookmarks: Set<String>
         get() = prefs.getStringSet("bookmarks", emptySet()) ?: emptySet()
