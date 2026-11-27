@@ -22,6 +22,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,12 +51,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -652,7 +660,7 @@ fun FeedScreen(macros: List<Macro>, onUse: (Template) -> Unit, onOpenMySet: () -
                         Text("気に入ったら「これを使う」で、自分の自動化になります。", color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
                     }
                 }
-                itemsIndexed(Templates) { index, t -> FeedCard(t, index, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, bookmarked = t.macroName in bookmarks, onToggleBookmark = { onToggleBookmark(t) }, needsPerm = permNeeds[t.macroName] == true, modifier = Modifier.animateItem()) }
+                itemsIndexed(Templates) { index, t -> FeedCard(t, index, added = macros.any { it.name == t.macroName }, onUse = { onUse(t) }, bookmarked = t.macroName in bookmarks, onToggleBookmark = { onToggleBookmark(t) }, missingKeys = permNeeds[t.macroName] ?: emptySet(), modifier = Modifier.animateItem()) }
             }
         }
         // マイセットへのフロートボタン（画面下部に常時表示）
@@ -682,48 +690,89 @@ fun BookmarksScreen(macros: List<Macro>, bookmarks: Set<String>, onUse: (Templat
             }
             val saved = Templates.withIndex().filter { it.value.macroName in bookmarks }
             if (saved.isEmpty()) {
-                Text("まだブックマークがないよ。\n気になるカードの 🔖 を押すと、ここに貯まります。", color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp))
+                Text("まだブックマークがないよ。\n気になるカードの右上にある、しおりのマークを押すと、ここに貯まります。", color = Palette.InkSoft, fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp))
             } else {
                 val permNeeds = rememberPermNeeds()
                 LazyColumn(contentPadding = PaddingValues(bottom = 40.dp, top = 14.dp), modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    itemsIndexed(saved) { _, iv -> FeedCard(iv.value, iv.index, added = macros.any { it.name == iv.value.macroName }, onUse = { onUse(iv.value) }, bookmarked = true, onToggleBookmark = { onToggleBookmark(iv.value) }, needsPerm = permNeeds[iv.value.macroName] == true) }
+                    itemsIndexed(saved) { _, iv -> FeedCard(iv.value, iv.index, added = macros.any { it.name == iv.value.macroName }, onUse = { onUse(iv.value) }, bookmarked = true, onToggleBookmark = { onToggleBookmark(iv.value) }, missingKeys = permNeeds[iv.value.macroName] ?: emptySet()) }
                 }
             }
         }
     }
 }
 
-// テンプレ全件の許可要否を一括で先に計算する（カードごとに判定を回さない＝フィードの軽量化、v2.9.0）
+// テンプレ全件の「足りない許可」を一括で先に計算する（カードごとに判定を回さない＝フィードの軽量化、v2.9.0）
+// v2.13.3：要否だけでなくキー自体を返す（カードに「何の許可が要るか」を書くため）
 @Composable
-fun rememberPermNeeds(): Map<String, Boolean> {
+fun rememberPermNeeds(): Map<String, Set<String>> {
     val context = LocalContext.current
     // 許可チェックはスナップショット1回だけ。51件ぶんシステムへ聞き直さない（v2.11.0）
-    return remember { val s = Engine.snapshotPermState(context); Templates.associate { t -> t.macroName to missingPermKeys(listOf(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType)), s).isNotEmpty() } }
+    return remember { val s = Engine.snapshotPermState(context); Templates.associate { t -> t.macroName to missingPermKeys(listOf(Macro(0, t.macroName, t.trigger, t.param, t.actions, t.constraintType)), s) } }
+}
+
+// 許可キーの短い呼び名（カードの「許可が要る：◯◯」表示用）
+fun permKeyLabel(key: String): String = when (key) {
+    "notif" -> "通知"
+    "dnd" -> "マナーモード"
+    "write" -> "明るさ変更"
+    "exact" -> "正確な時刻"
+    "usage" -> "使用状況"
+    "location" -> "位置情報"
+    "bt" -> "Bluetooth"
+    "notiflisten" -> "通知へのアクセス"
+    "calendar" -> "カレンダー"
+    else -> key
+}
+
+// しおり型のブックマーク印（v2.13.3）。絵文字（端末ごとに姿が変わり、赤いタグは値札に見える）のをやめて、自分で描く。
+// 保存済み＝ピンクの塗りつぶし／未保存＝輪郭だけ。状態が見た目で読めるようにする
+@Composable
+fun BookmarkMark(active: Boolean) {
+    val color = if (active) Palette.Pink else Palette.InkSoft
+    Canvas(Modifier.size(14.dp, 17.dp)) {
+        val w = size.width
+        val h = size.height
+        val path = Path().apply {
+            moveTo(w * 0.14f, h * 0.06f)
+            lineTo(w * 0.86f, h * 0.06f)
+            lineTo(w * 0.86f, h * 0.94f)
+            lineTo(w * 0.5f, h * 0.66f)
+            lineTo(w * 0.14f, h * 0.94f)
+            close()
+        }
+        if (active) drawPath(path, color) else drawPath(path, color, style = Stroke(width = 1.5.dp.toPx(), join = androidx.compose.ui.graphics.StrokeJoin.Round))
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifier: Modifier = Modifier, bookmarked: Boolean = false, onToggleBookmark: () -> Unit = {}, needsPerm: Boolean = false) {
+fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifier: Modifier = Modifier, bookmarked: Boolean = false, onToggleBookmark: () -> Unit = {}, missingKeys: Set<String> = emptySet()) {
     // 仕組み（フローのチップ列・遅延の注意書き）は畳んでおき、タップで開く（v2.8.0・本人の「文字が多い」指摘）
     var expanded by remember { mutableStateOf(false) }
     Box(modifier.fillMaxWidth().glass(20, Palette.GlassCard)) {
         Column {
             // 上端の帯は全カード共通でピンク→オレンジ（きっかけ→やること、という中身の流れを色で表す。v2.12.0で色巡回を廃止）
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 12.dp).height(5.dp).clip(RoundedCornerShape(999.dp)).background(Brush.horizontalGradient(listOf(Palette.Pink, Palette.Orange))))
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PinkBg)).padding(10.dp)) {
                     Text(t.trigger.icon, fontSize = 18.sp)
                 }
                 Spacer(Modifier.width(12.dp))
                 Text(t.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
-                // あとで見返すためのブックマーク（v2.8.0）
-                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(if (bookmarked) Palette.PinkBg else Palette.Line)).pressable { onToggleBookmark() }.padding(horizontal = 11.dp, vertical = 7.dp)) {
-                    Text("🔖", fontSize = 15.sp)
+                // あとで見返すためのブックマーク（v2.8.0）。v2.13.3で絵文字から描画マークへ（状態が読める形に）
+                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(if (bookmarked) Palette.PinkBg else Palette.Line)).pressable { onToggleBookmark() }.semantics { contentDescription = "ブックマーク" }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                    BookmarkMark(bookmarked)
                 }
             }
-            if (t.note.isNotBlank()) Text(t.note, color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp)
-            Text(if (expanded) "仕組みを閉じる ▴" else "仕組みを見る ▾", color = Palette.Sky, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 2.dp))
+            // 紹介文は文節で折る（「スター／ト。」みたいに単語の途中で割らない）。文節区切りは端末の日本語折り返し（API 33+）に任せる
+            if (t.note.isNotBlank()) Text(t.note, color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp, style = TextStyle(lineBreak = LineBreak(LineBreak.Strategy.HighQuality, LineBreak.Strictness.Normal, LineBreak.WordBreak.Phrase)))
+            // 「仕組みを見る」はリンク文字ではなく、行ごと押せる開閉の行として出す（v2.13.3）
+            Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (expanded) "仕組みを閉じる" else "仕組みを見る", color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Spacer(Modifier.width(5.dp))
+                Text(if (expanded) "▴" else "▾", color = Palette.InkSoft, fontSize = 12.sp)
+            }
             if (expanded) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     FeedChip("${t.trigger.icon} ${t.trigger.label}" + if (t.param.isNotBlank() && !t.param.contains(".")) " ${t.param}" else "", Palette.PinkBg, Palette.Pink)
@@ -738,18 +787,25 @@ fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifie
                 }
                 if (t.trigger == TriggerType.BATTERY_LOW || t.trigger == TriggerType.WIFI_CONNECTED || t.trigger == TriggerType.APP_LAUNCH || t.trigger == TriggerType.APP_CLOSED || t.trigger == TriggerType.LOCATION) Text("※ 少し遅れて動きます", color = Palette.InkSoft, fontSize = 13.sp)
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (t.badge.isNotBlank()) {
-                        Box(Modifier.clip(RoundedCornerShape(999.dp)).background(solidBrush(Palette.Pink)).padding(horizontal = 10.dp, vertical = 5.dp)) {
-                            Text(t.badge, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                    }
-                    if (!added) {
-                        if (needsPerm) FeedChip("許可が要る", Palette.SkyBg, Palette.Sky) else FeedChip("すぐ試せる", Palette.PinkBg, Palette.Pink)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (t.badge.isNotBlank()) {
+                    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(solidBrush(Palette.Pink)).padding(horizontal = 10.dp, vertical = 5.dp)) {
+                        Text(t.badge, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
-                Spacer(Modifier.weight(1f))
+                if (!added) {
+                    // 許可の表示はボタンと並ぶので、ピル型にすると「押せるもの」に見える。平らなラベル（点＋文字）にして、状態表示だと分かる形にする（v2.13.3）。何の許可かも書く
+                    // ラベル側に weight を持たせ、長くなってもボタンが潰れないようにする
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Box(Modifier.size(7.dp).clip(RoundedCornerShape(999.dp)).background(if (missingKeys.isNotEmpty()) Palette.Sky else Palette.Pink))
+                        Text(
+                            if (missingKeys.isEmpty()) "すぐ試せる" else "許可が要る：" + missingKeys.take(2).joinToString("・") { permKeyLabel(it) } + if (missingKeys.size > 2) " ほか" else "",
+                            color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
                 if (added) {
                     Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.Line)).padding(horizontal = 16.dp, vertical = 9.dp)) {
                         Text("追加済み ✓", color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 14.sp)

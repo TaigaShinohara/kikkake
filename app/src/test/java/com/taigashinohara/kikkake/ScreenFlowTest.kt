@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
@@ -127,9 +128,9 @@ class ScreenFlowTest {
 
     @Test
     fun bookmark_saveAndReview() {
-        // v2.8.0：カードの 🔖 で保存し、ブックマーク画面で見返せる
+        // v2.8.0：カードのしおりマークで保存し、ブックマーク画面で見返せる（v2.13.3で絵文字から描画マークへ）
         setApp(onboardingDone = true, withMacros = false)
-        rule.onAllNodesWithText("🔖")[0].performClick()
+        rule.onAllNodesWithContentDescription("ブックマーク")[0].performClick()
         rule.onNodeWithText("ブックマーク", substring = true).performClick()
         rule.onNodeWithText("動画の見すぎストッパー").assertIsDisplayed()
         rule.onNodeWithText("1件").assertIsDisplayed()
