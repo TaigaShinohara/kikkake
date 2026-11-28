@@ -832,19 +832,21 @@ fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifie
             // 上端の帯は全カード共通でピンク→オレンジ（きっかけ→やること、という中身の流れを色で表す。v2.12.0で色巡回を廃止）
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 12.dp).height(5.dp).clip(RoundedCornerShape(999.dp)).background(Brush.horizontalGradient(listOf(Palette.Pink, Palette.Orange))))
             Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // v2.15.0：カードの主役を「機能名」から「使うとどうなるか（結果）」へ。頭に場面チップ（どこで効くか）、名前は小さい字で添える
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.PinkBg)).padding(10.dp)) {
-                    Text(t.trigger.icon, fontSize = 18.sp)
+                val (sceneIcon, sceneLabel) = Logic.sceneOf(t)
+                Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(Palette.Line)).padding(horizontal = 10.dp, vertical = 5.dp)) {
+                    Text("$sceneIcon $sceneLabel", color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false)
                 }
-                Spacer(Modifier.width(12.dp))
-                Text(t.title, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                Spacer(Modifier.weight(1f))
                 // あとで見返すためのブックマーク（v2.8.0）。v2.13.3で絵文字から描画マークへ（状態が読める形に）
                 Box(Modifier.clip(RoundedCornerShape(999.dp)).background(tintBrush(if (bookmarked) Palette.PinkBg else Palette.Line)).pressable { onToggleBookmark() }.semantics { contentDescription = "ブックマーク" }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
                     BookmarkMark(bookmarked)
                 }
             }
-            // 紹介文は文節で折る（「スター／ト。」みたいに単語の途中で割らない）。文節区切りは端末の日本語折り返し（API 33+）に任せる
-            if (t.note.isNotBlank()) Text(t.note, color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp, style = TextStyle(lineBreak = LineBreak(LineBreak.Strategy.HighQuality, LineBreak.Strictness.Normal, LineBreak.WordBreak.Phrase)))
+            // 結果の一文が主役。文節で折る（単語の途中で割らない。API 33+ の日本語折り返しに任せる）
+            Text(t.benefit.ifBlank { t.title }, color = Palette.Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 24.sp, style = TextStyle(lineBreak = LineBreak(LineBreak.Strategy.HighQuality, LineBreak.Strictness.Normal, LineBreak.WordBreak.Phrase)))
+            if (t.benefit.isNotBlank()) Text(t.title, color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             // 「仕組みを見る」はリンク文字ではなく、行ごと押せる開閉の行として出す（v2.13.3）
             Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(if (expanded) "仕組みを閉じる" else "仕組みを見る", color = Palette.InkSoft, fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -852,6 +854,8 @@ fun FeedCard(t: Template, index: Int, added: Boolean, onUse: () -> Unit, modifie
                 Text(if (expanded) "▴" else "▾", color = Palette.InkSoft, fontSize = 12.sp)
             }
             if (expanded) {
+                // 紹介文は「仕組み」の側へ移した（v2.15.0）。畳んだ状態の主役は結果の一文だけにする
+                if (t.note.isNotBlank()) Text(t.note, color = Palette.InkSoft, fontSize = 14.sp, lineHeight = 22.sp, style = TextStyle(lineBreak = LineBreak(LineBreak.Strategy.HighQuality, LineBreak.Strictness.Normal, LineBreak.WordBreak.Phrase)))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     FeedChip("${t.trigger.icon} ${t.trigger.label}" + if (t.param.isNotBlank() && !t.param.contains(".")) " ${t.param}" else "", Palette.PinkBg, Palette.Pink)
                     t.actions.forEach { a ->

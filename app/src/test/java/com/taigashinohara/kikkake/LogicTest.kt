@@ -21,7 +21,25 @@ class LogicTest {
         Templates.forEach { t ->
             assertTrue("${t.title} has actions", t.actions.isNotEmpty())
             assertTrue("${t.title} has note", t.note.isNotBlank())
+            // v2.15.0：結果の一文（カードの主役）が全件にあること。長すぎると主役にならないので上限も見る
+            assertTrue("${t.title} has benefit", t.benefit.isNotBlank())
+            assertTrue("${t.title} benefit too long", t.benefit.length <= 32)
         }
+    }
+    @Test fun sceneOf_byTriggerAndTime() {
+        fun t(trigger: TriggerType, param: String = "") = Template("x", "x", trigger, param, listOf(ActionItem(ActionType.NOTIFICATION)))
+        assertEquals("夜", Logic.sceneOf(t(TriggerType.TIME, "22:00")).second)
+        assertEquals("朝", Logic.sceneOf(t(TriggerType.TIME, "07:00")).second)
+        assertEquals("夕方", Logic.sceneOf(t(TriggerType.TIME, "18:45")).second)
+        assertEquals("日の入り", Logic.sceneOf(t(TriggerType.SUN_EVENT, "sunset@34.6,135.5")).second)
+        assertEquals("日の出", Logic.sceneOf(t(TriggerType.SUN_EVENT, "sunrise@34.6,135.5")).second)
+        assertEquals("電池", Logic.sceneOf(t(TriggerType.BATTERY_LOW, "20%")).second)
+        assertEquals("充電", Logic.sceneOf(t(TriggerType.CHARGING_START)).second)
+        assertEquals("帰宅", Logic.sceneOf(t(TriggerType.LOCATION, "arrive@34.6,135.5")).second)
+        assertEquals("連絡", Logic.sceneOf(t(TriggerType.NOTIFICATION_POSTED, "a|b")).second)
+        assertEquals("玄関", Logic.sceneOf(t(TriggerType.NFC)).second)
+        // 全テンプレに場面が付く（未対応トリガーの混入防止）
+        Templates.forEach { assertTrue("${it.title} scene", Logic.sceneOf(it).second.isNotBlank()) }
     }
     @Test fun allPatternsHaveIcons() {
         TriggerType.values().forEach { assertTrue(it.icon.isNotBlank()) }
